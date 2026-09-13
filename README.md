@@ -25,20 +25,32 @@ Beide mappen staan in `.gitignore`.
 
 ## Google OAuth instellen (eenmalig)
 
-1. Ga naar [console.cloud.google.com](https://console.cloud.google.com/) en maak een project.
+De console heet tegenwoordig **Google Auth Platform** (het oude *APIs & Services → OAuth consent
+screen* wijst daarheen door).
+
+1. [console.cloud.google.com](https://console.cloud.google.com/) → maak of kies een project
+   (projectkiezer bovenin).
 2. **APIs & Services → Library** → zoek *Google Calendar API* → **Enable**.
-3. **APIs & Services → OAuth consent screen** → User type **External** → vul naam/e-mail in.
-   Voeg bij **Test users** je eigen Google-account toe (zolang de app in testmodus staat).
-   Scopes hoef je hier niet vooraf toe te voegen.
-4. **APIs & Services → Credentials → Create credentials → OAuth client ID**
+3. **Google Auth Platform → Branding**: app-naam en support-e-mail invullen (eenmalige registratie).
+4. **Google Auth Platform → Audience**: User type **External**. Zolang de app op *Testing* staat,
+   voeg je bij **Test users** je eigen Google-account toe — anders krijg je bij het inloggen
+   "app is blocked" of "has not completed verification".
+5. **Google Auth Platform → Clients → Create client**
    - Application type: **Web application**
    - **Authorized JavaScript origins**: `http://localhost:5173`
    - Redirect URI's zijn niet nodig (de app gebruikt de token-flow van Google Identity Services).
-5. Kopieer de client ID in de app onder **Instellingen**, of zet hem in een `.env`-bestand:
+6. Kopieer de **Client ID** (eindigt op `.apps.googleusercontent.com`) naar `.env`:
 
    ```
    VITE_GOOGLE_CLIENT_ID=123-abc.apps.googleusercontent.com
    ```
+
+   Daarna `npm run dev` herstarten. Plakken in **Instellingen** in de app kan ook; die waarde
+   wordt in localStorage bewaard en heeft voorrang.
+
+De **client secret** van datzelfde scherm heb je niet nodig en hoort hier ook niet: alles wat in
+`VITE_*` staat komt in de browserbundel terecht. Een client ID is publiek bedoeld; Google beveiligt
+hem via de toegestane JavaScript-origin.
 
 Gebruikte scopes: `calendar.readonly` (lijst met agenda's ophalen) en `calendar.events`
 (afspraken aanmaken/bijwerken). De token blijft in het geheugen van het tabblad; er wordt niets
