@@ -7,3 +7,7 @@ dist
 # gedownload/gekopieerd door scripts/prepare-assets.mjs
 public/tesseract/
 public/tessdata/
+
+# Claude
+.claude/
+CLAUDE.md
