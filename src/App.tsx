@@ -23,7 +23,12 @@ const defaultSettings: Settings = {
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return { ...defaultSettings, ...JSON.parse(raw) };
+    if (raw) {
+      const merged = { ...defaultSettings, ...JSON.parse(raw) } as Settings;
+      // a client ID from .env wins over an empty stored one
+      if (!merged.clientId) merged.clientId = defaultSettings.clientId;
+      return merged;
+    }
   } catch { /* ignore */ }
   return defaultSettings;
 }
