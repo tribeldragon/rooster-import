@@ -13,11 +13,15 @@ shifts in een Google Agenda naar keuze.
 ## Starten
 
 ```bash
-npm install
+npm install        # kopieert ook de Tesseract-worker/wasm en haalt de taalbestanden op
 npm run dev        # http://localhost:5173
 ```
 
-De eerste OCR-run downloadt de taalbestanden (~15 MB). Die worden in de browser gecachet.
+`npm install` draait `scripts/prepare-assets.mjs`: die zet de Tesseract-worker en de wasm-core
+uit `node_modules` in `public/tesseract/` en downloadt `nld` + `eng` taaldata (~21 MB) naar
+`public/tessdata/`. Daardoor draait de OCR volledig lokaal, zonder CDN. Mislukt het downloaden,
+dan valt de app terug op de CDN van tesseract.js; `npm run prepare-assets` probeert het opnieuw.
+Beide mappen staan in `.gitignore`.
 
 ## Google OAuth instellen (eenmalig)
 
@@ -70,6 +74,17 @@ Draait de parser op echte OCR-output van `samples/week-2026-09-07.png` (opgeslag
 `scripts/fixture.json`) en vergelijkt die met de shifts zoals ze in die screenshot staan.
 Nieuwe fixture nodig na een layoutwijziging? Zie de OCR-instellingen in `src/lib/ocr.ts`
 (grijswaarden, contrast 1.4/-40, schaal ~3×) en neem dezelfde voorbewerking over.
+
+## Waar wat staat
+
+```
+src/lib/ocr.ts      voorbewerking + Tesseract (browser)
+src/lib/parse.ts    pure parser, zonder browser-API's
+src/lib/google.ts   OAuth-token + Calendar API
+src/App.tsx         upload, reviewtabel, import
+scripts/            asset-prep en parsertest + OCR-fixture
+samples/            voorbeeldscreenshot waar de test op draait
+```
 
 ## Bekende beperkingen
 
