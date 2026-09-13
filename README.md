@@ -45,8 +45,7 @@ screen* wijst daarheen door).
    VITE_GOOGLE_CLIENT_ID=123-abc.apps.googleusercontent.com
    ```
 
-   Daarna `npm run dev` herstarten. Plakken in **Instellingen** in de app kan ook; die waarde
-   wordt in localStorage bewaard en heeft voorrang.
+   Daarna `npm run dev` herstarten — Vite leest `.env` alleen bij het starten.
 
 De **client secret** van datzelfde scherm heb je niet nodig en hoort hier ook niet: alles wat in
 `VITE_*` staat komt in de browserbundel terecht. Een client ID is publiek bedoeld; Google beveiligt

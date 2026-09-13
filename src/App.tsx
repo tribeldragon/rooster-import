@@ -129,7 +129,7 @@ export default function App() {
 
   const ensureToken = async (silent = false): Promise<Token> => {
     if (token && token.expiresAt > Date.now()) return token;
-    if (!settings.clientId) throw new Error('Vul eerst je Google client ID in bij Instellingen.');
+    if (!settings.clientId) throw new Error('Geen Google client ID: zet VITE_GOOGLE_CLIENT_ID in .env en herstart de dev-server.');
     const t = await requestToken(settings.clientId, { silent });
     setToken(t);
     return t;
@@ -387,7 +387,11 @@ export default function App() {
         {!token ? (
           <>
             <button onClick={connect} disabled={!settings.clientId}>Inloggen met Google</button>
-            {!settings.clientId && <div className="note warn">Vul eerst je Google client ID in bij Instellingen hieronder.</div>}
+            {!settings.clientId && (
+              <div className="note warn">
+                Geen Google client ID gevonden. Zet <code>VITE_GOOGLE_CLIENT_ID</code> in <code>.env</code> en herstart <code>npm run dev</code>.
+              </div>
+            )}
           </>
         ) : (
           <div className="row">
@@ -433,35 +437,6 @@ export default function App() {
         </p>
       </section>
 
-      {/* -------------------------------------------------------- settings */}
-      <section className="panel">
-        <details>
-          <summary><strong>Instellingen</strong></summary>
-          <div className="row" style={{ marginTop: 12 }}>
-            <div className="field grow">
-              <label>Google OAuth client ID</label>
-              <input
-                type="text"
-                placeholder="123-abc.apps.googleusercontent.com"
-                value={settings.clientId}
-                onChange={(e) => setSettings((s) => ({ ...s, clientId: e.target.value.trim() }))}
-              />
-            </div>
-            <div className="field">
-              <label>Tijdzone</label>
-              <input
-                type="text"
-                value={settings.timeZone}
-                onChange={(e) => setSettings((s) => ({ ...s, timeZone: e.target.value.trim() }))}
-              />
-            </div>
-          </div>
-          <p className="muted">
-            Maak in Google Cloud Console een OAuth-client van het type <code>Web application</code> met
-            JavaScript-origin <code>http://localhost:5173</code>. Zie README.md voor de stappen.
-          </p>
-        </details>
-      </section>
     </div>
   );
 }
