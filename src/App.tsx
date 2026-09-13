@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseSchedule, addDays, weekdayOf, type ParseResult, type Shift } from './lib/parse';
 import { fileToDataUrl, runOcr, type Progress } from './lib/ocr';
 import {
-  buildEvent, listCalendars, requestToken, upsertEvent,
+  buildEvent, listCalendars, requestToken, revokeToken, upsertEvent,
   type CalendarEntry, type EventSettings, type Token,
 } from './lib/google';
 
@@ -12,6 +12,9 @@ interface Settings extends EventSettings {
 }
 
 const SETTINGS_KEY = 'rooster-import.settings';
+const CALENDAR_KEY = 'rooster-import.calendar';
+/** Remembers that consent was given, so the next visit can get a token silently. */
+const CONNECTED_KEY = 'rooster-import.connected';
 
 const defaultSettings: Settings = {
   clientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) ?? '',
@@ -46,14 +49,14 @@ export default function App() {
 
   const [token, setToken] = useState<Token | null>(null);
   const [calendars, setCalendars] = useState<CalendarEntry[]>([]);
-  const [calendarId, setCalendarId] = useState<string>(localStorage.getItem('rooster-import.calendar') ?? '');
+  const [calendarId, setCalendarId] = useState<string>(localStorage.getItem(CALENDAR_KEY) ?? '');
   const [importState, setImportState] = useState<ImportState>({});
   const [importing, setImporting] = useState(false);
 
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
-  useEffect(() => { if (calendarId) localStorage.setItem('rooster-import.calendar', calendarId); }, [calendarId]);
+  useEffect(() => { if (calendarId) localStorage.setItem(CALENDAR_KEY, calendarId); }, [calendarId]);
 
   /* ------------------------------------------------------------ screenshot */
 
@@ -97,6 +100,20 @@ export default function App() {
   const patchShift = (id: string, patch: Partial<Shift>) =>
     setShifts((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
+  const removeShift = (id: string) => {
+    setShifts((prev) => prev.filter((s) => s.id !== id));
+    setImportState(({ [id]: _dropped, ...rest }) => rest);
+  };
+
+  /** Clear the table without touching the Google session. */
+  const clearAll = () => {
+    setResult(null);
+    setShifts([]);
+    setImportState({});
+    setImageUrl(null);
+    setError(null);
+  };
+
   const firstDate = shifts.find((s) => s.date)?.date ?? '';
 
   const moveWeek = (newFirst: string) => {
@@ -118,19 +135,47 @@ export default function App() {
     return t;
   };
 
+  const applyCalendars = (list: CalendarEntry[]) => {
+    setCalendars(list);
+    setCalendarId((cur) => (list.some((c) => c.id === cur) ? cur : list.find((c) => c.primary)?.id ?? list[0]?.id ?? ''));
+  };
+
   const connect = async () => {
     setError(null);
     try {
       const t = await ensureToken();
-      const list = await listCalendars(t.value);
-      setCalendars(list);
-      if (!list.find((c) => c.id === calendarId)) {
-        setCalendarId(list.find((c) => c.primary)?.id ?? list[0]?.id ?? '');
-      }
+      applyCalendars(await listCalendars(t.value));
+      localStorage.setItem(CONNECTED_KEY, '1');
     } catch (e) {
       setError((e as Error).message);
     }
   };
+
+  const disconnect = () => {
+    if (token) revokeToken(token.value);
+    localStorage.removeItem(CONNECTED_KEY);
+    setToken(null);
+    setCalendars([]);
+  };
+
+  /** Already consented once? Then pick the session back up without any dialog. */
+  useEffect(() => {
+    if (!settings.clientId || localStorage.getItem(CONNECTED_KEY) !== '1') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await requestToken(settings.clientId, { silent: true });
+        if (cancelled) return;
+        setToken(t);
+        const list = await listCalendars(t.value);
+        if (!cancelled) applyCalendars(list);
+      } catch {
+        localStorage.removeItem(CONNECTED_KEY); // consent expired or revoked
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selected = useMemo(() => shifts.filter((s) => s.include && s.date), [shifts]);
 
@@ -138,14 +183,23 @@ export default function App() {
     setError(null);
     setImporting(true);
     try {
-      const t = await ensureToken(true);
+      let t = await ensureToken(true);
       for (const shift of selected) {
         setImportState((p) => ({ ...p, [shift.id]: 'pending' }));
+        const event = buildEvent(shift, settings);
         try {
-          const outcome = await upsertEvent(t.value, calendarId, buildEvent(shift, settings));
+          const outcome = await upsertEvent(t.value, calendarId, event);
           setImportState((p) => ({ ...p, [shift.id]: outcome }));
         } catch (e) {
-          setImportState((p) => ({ ...p, [shift.id]: (e as Error).message }));
+          if ((e as { status?: number }).status === 401) {
+            // token died mid-import: ask Google for a new one and retry once
+            t = await requestToken(settings.clientId, { silent: false });
+            setToken(t);
+            const outcome = await upsertEvent(t.value, calendarId, event);
+            setImportState((p) => ({ ...p, [shift.id]: outcome }));
+          } else {
+            setImportState((p) => ({ ...p, [shift.id]: (e as Error).message }));
+          }
         }
       }
     } catch (e) {
@@ -212,7 +266,12 @@ export default function App() {
       {/* ---------------------------------------------------------- review */}
       {result && (
         <section className="panel">
-          <h2>Gevonden shifts</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>Gevonden shifts</h2>
+            <span className="muted">{shifts.length} in de lijst</span>
+            <div className="spacer" />
+            <button className="secondary" onClick={clearAll}>Tabel leegmaken</button>
+          </div>
 
           {result.warnings.map((w, i) => <div className="note warn" key={i}>{w}</div>)}
 
@@ -253,6 +312,7 @@ export default function App() {
                 <th>Titel</th>
                 <th>Activiteiten</th>
                 <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -300,65 +360,78 @@ export default function App() {
                       {state && !['pending', 'created', 'updated'].includes(state) &&
                         <span style={{ color: 'var(--err)' }}>{state}</span>}
                     </td>
+                    <td>
+                      <button
+                        className="iconbtn"
+                        title="Verwijder deze shift uit de lijst"
+                        aria-label={`Verwijder shift van ${s.date ?? 'onbekende datum'}`}
+                        onClick={() => removeShift(s.id)}
+                      >
+                        ✕
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          {!shifts.length && (
+            <p className="muted">Alle shifts verwijderd. Sleep hierboven een nieuwe screenshot om verder te gaan.</p>
+          )}
         </section>
       )}
 
       {/* ---------------------------------------------------------- google */}
-      {result && (
-        <section className="panel">
-          <h2>Naar Google Agenda</h2>
-          {!token ? (
-            <>
-              <button onClick={connect} disabled={!settings.clientId}>Inloggen met Google</button>
-              {!settings.clientId && <div className="note warn">Vul eerst je Google client ID in bij Instellingen hieronder.</div>}
-            </>
-          ) : (
-            <div className="row">
-              <div className="field grow">
-                <label>Agenda</label>
-                <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
-                  {calendars.map((c) => (
-                    <option key={c.id} value={c.id}>{c.summary}{c.primary ? ' (standaard)' : ''}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label>Herinnering</label>
-                <select
-                  value={settings.reminderMinutes ?? ''}
-                  onChange={(e) => setSettings((s) => ({
-                    ...s, reminderMinutes: e.target.value === '' ? null : Number(e.target.value),
-                  }))}
-                >
-                  <option value="">Agenda-standaard</option>
-                  <option value="0">Op het moment zelf</option>
-                  <option value="30">30 minuten vooraf</option>
-                  <option value="60">1 uur vooraf</option>
-                  <option value="120">2 uur vooraf</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>&nbsp;</label>
-                <button onClick={doImport} disabled={importing || !calendarId || !selected.length}>
-                  {importing ? 'Bezig…' : `${selected.length} shift(s) importeren`}
-                </button>
-              </div>
-              <div className="field">
-                <label>&nbsp;</label>
-                <button className="secondary" onClick={() => { setToken(null); setCalendars([]); }}>Uitloggen</button>
-              </div>
+      <section className="panel">
+        <h2>Naar Google Agenda</h2>
+        {!token ? (
+          <>
+            <button onClick={connect} disabled={!settings.clientId}>Inloggen met Google</button>
+            {!settings.clientId && <div className="note warn">Vul eerst je Google client ID in bij Instellingen hieronder.</div>}
+          </>
+        ) : (
+          <div className="row">
+            <div className="field grow">
+              <label>Agenda</label>
+              <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
+                {calendars.map((c) => (
+                  <option key={c.id} value={c.id}>{c.summary}{c.primary ? ' (standaard)' : ''}</option>
+                ))}
+              </select>
             </div>
-          )}
-          <p className="muted">
-            Opnieuw importeren van dezelfde week maakt geen dubbele afspraken: bestaande shifts worden bijgewerkt.
-          </p>
-        </section>
-      )}
+            <div className="field">
+              <label>Herinnering</label>
+              <select
+                value={settings.reminderMinutes ?? ''}
+                onChange={(e) => setSettings((s) => ({
+                  ...s, reminderMinutes: e.target.value === '' ? null : Number(e.target.value),
+                }))}
+              >
+                <option value="">Agenda-standaard</option>
+                <option value="0">Op het moment zelf</option>
+                <option value="30">30 minuten vooraf</option>
+                <option value="60">1 uur vooraf</option>
+                <option value="120">2 uur vooraf</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>&nbsp;</label>
+              <button onClick={doImport} disabled={importing || !calendarId || !selected.length}>
+                {importing ? 'Bezig…' : selected.length ? `${selected.length} shift(s) importeren` : 'Geen shifts geselecteerd'}
+              </button>
+            </div>
+            <div className="field">
+              <label>&nbsp;</label>
+              <button className="secondary" onClick={disconnect}>Uitloggen</button>
+            </div>
+          </div>
+        )}
+        <p className="muted">
+          {token
+            ? 'Je blijft ingelogd terwijl je een volgende screenshot verwerkt. Opnieuw importeren van dezelfde week maakt geen dubbele afspraken: bestaande shifts worden bijgewerkt.'
+            : 'Na één keer toestemming geven blijf je ingelogd, ook na het herladen van de pagina.'}
+        </p>
+      </section>
 
       {/* -------------------------------------------------------- settings */}
       <section className="panel">

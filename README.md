@@ -74,7 +74,15 @@ op een server opgeslagen.
     die leest slechter. Wijkt de linkerkolom af, dan verschijnt er een waarschuwing.
   - Tijden die niet aansluiten worden gecorrigeerd en met `*` gemarkeerd.
 
-Alles is te corrigeren in de reviewtabel voordat er iets naar Google gaat.
+Alles is te corrigeren in de reviewtabel voordat er iets naar Google gaat: per rij de datum en
+tijden aanpassen, een rij uitvinken, of hem met ✕ uit de lijst gooien. **Tabel leegmaken** wist de
+hele lijst; daarna sleep je gewoon de volgende screenshot erin. Een nieuwe screenshot vervangt de
+lijst.
+
+De Google-sessie blijft daarbij staan. Na één keer toestemming geven haalt de app bij een volgend
+bezoek stil een nieuwe token op (`prompt: ''`), dus na herladen hoef je niet opnieuw in te loggen —
+tot je op **Uitloggen** klikt, dan wordt de token ingetrokken. Verloopt de token midden in een
+import, dan vraagt de app er eenmalig een nieuwe en gaat verder.
 
 ## Tests
 

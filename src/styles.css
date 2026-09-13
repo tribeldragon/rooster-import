@@ -111,3 +111,14 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .grow { flex: 1 1 200px; }
 .spacer { flex: 1; }
 code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+
+.iconbtn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.iconbtn:hover { color: var(--err); border-color: var(--line); }
