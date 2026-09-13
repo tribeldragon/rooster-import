@@ -11,3 +11,4 @@ public/tessdata/
 # Claude
 .claude/
 CLAUDE.md
+graphify-out/
