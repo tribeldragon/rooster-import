@@ -41,6 +41,8 @@ export interface Shift {
   warnings: string[];
   include: boolean;
   title: string;
+  /** Which OFFICE_ACTIVITIES occur during this shift, in order of first occurrence. */
+  officeActivities: string[];
 }
 
 export interface ParseResult {
@@ -253,10 +255,13 @@ export function reconcileDates(
 
 /* -------------------------------------------------------------- activities */
 
-const KNOWN_ACTIVITIES = ['Voice', 'Admin Klant', 'Lunch', 'Chat', 'Coaching', 'Systeemstoring', 'Training', 'Pauze', 'Meeting', 'Email', 'Backoffice'];
+const KNOWN_ACTIVITIES = ['Voice', 'Admin Klant', 'Lunch', 'Chat', 'Coaching', 'Overleg', 'Systeemstoring', 'Training', 'Pauze', 'Meeting', 'Email', 'Backoffice'];
 
 /** Break activity labels: they don't count as "working" but stay inside the shift. */
 export const BREAK_ACTIVITIES = ['Lunch', 'Pauze'];
+
+/** If any of these activities occur during a shift, the event title becomes "Werk | Kantoor". */
+export const OFFICE_ACTIVITIES = ['Overleg', 'Coaching'];
 
 export function cleanLabel(raw: string): string {
   let s = raw
@@ -377,11 +382,18 @@ export function parseSchedule(input: ParseInput): ParseResult {
     return days.filter((d) => d.y >= yMin - pad && d.y <= yMax + pad);
   };
 
-  // merge chains that carry no day label of their own (false split from OCR noise)
+  // Merge chains that are really one working day split in two: either the block
+  // carries no day label of its own, or it lands on the *same* single day as the
+  // previous block (a misread boundary time - e.g. around lunch or a one-off
+  // event - breaks the back-to-back match even though it's still one shift).
+  // A working day only ever produces one shift/event, so never leave it split.
   const merged: Activity[][] = [];
   for (const chain of chains) {
     const hits = labelFor(chain);
-    if (!hits.length && merged.length) merged[merged.length - 1].push(...chain);
+    const prevChain = merged[merged.length - 1];
+    const prevHits = prevChain ? labelFor(prevChain) : [];
+    const sameDay = hits.length === 1 && prevHits.length === 1 && hits[0] === prevHits[0];
+    if (prevChain && (!hits.length || sameDay)) prevChain.push(...chain);
     else merged.push(chain);
   }
   chains = merged;
@@ -413,6 +425,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
       }
     }
     if (chain.some((a) => a.repaired)) chainWarnings.push('Eén of meer activiteittijden zijn automatisch gecorrigeerd.');
+    const officeActivities = [...new Set(chain.map((a) => a.label).filter((l) => OFFICE_ACTIVITIES.includes(l)))];
     shifts.push({
       id: `${day?.date ?? 'onbekend'}-${start}-${ci}`,
       date: day?.date ?? null,
@@ -421,7 +434,8 @@ export function parseSchedule(input: ParseInput): ParseResult {
       activities: chain,
       warnings: chainWarnings,
       include: true,
-      title: 'Werk',
+      title: officeActivities.length ? `Werk | ${officeActivities.join(', ')} | Kantoor` : 'Werk',
+      officeActivities,
     });
   });
 

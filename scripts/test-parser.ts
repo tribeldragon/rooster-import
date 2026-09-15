@@ -63,6 +63,35 @@ const mon = result.shifts[0];
 check('eerste activiteit maandag', mon?.activities[0]?.label, 'Voice');
 check('lunch herkend', mon?.activities.some((a) => a.label === 'Lunch'), true);
 check('coaching herkend', mon?.activities.some((a) => a.label === 'Coaching'), true);
+check('titel "Werk | Coaching | Kantoor" bij coaching', mon?.title, 'Werk | Coaching | Kantoor');
+
+/*
+ * Regression: a misread boundary time (e.g. around lunch/an event) used to
+ * break the back-to-back match and split one working day into two shifts.
+ * Synthetic input: one day, three activities, where the 2nd activity's OCR'd
+ * start ("12:05") doesn't match the 1st activity's end ("12:00").
+ */
+const splitDaySynthetic = parseSchedule({
+  fullWords: [
+    { text: 'maandag 7 september', conf: 90, x0: 10, x1: 160, y0: 97, y1: 103 },
+    { text: 'Voice 09:00 - 12:00', conf: 90, x0: 650, x1: 900, y0: 98, y1: 104 },
+    { text: 'Coaching 12:05 - 12:30', conf: 90, x0: 650, x1: 900, y0: 110, y1: 116 },
+    { text: 'Voice 12:30 - 16:00', conf: 90, x0: 650, x1: 900, y0: 122, y1: 128 },
+  ],
+  imageWidth: 1000,
+  fallbackYear: 2026,
+});
+check('gesplitste dag: precies één shift', splitDaySynthetic.shifts.length, 1);
+const splitDay = splitDaySynthetic.shifts[0];
+check('gesplitste dag: alle activiteiten samengevoegd', splitDay?.activities.length, 3);
+check('gesplitste dag: starttijd van shift', splitDay?.start, '09:00');
+check('gesplitste dag: eindtijd van shift', splitDay?.end, '16:00');
+check(
+  'gesplitste dag: misread grenstijd hersteld',
+  splitDay?.activities[1] && { start: splitDay.activities[1].start, repaired: splitDay.activities[1].repaired },
+  { start: '12:00', repaired: true },
+);
+check('gesplitste dag: titel bevat Coaching', splitDay?.title, 'Werk | Coaching | Kantoor');
 
 console.log('\n--- omschrijving maandag ---\n' + shiftDescription(mon));
 console.log(`\n${failures ? `${failures} test(s) MISLUKT` : 'Alle tests geslaagd'}`);

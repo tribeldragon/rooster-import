@@ -77,7 +77,12 @@ export default function App() {
         fallbackYear: new Date().getFullYear(),
       });
       setResult(parsed);
-      setShifts(parsed.shifts.map((s) => ({ ...s, title: settings.defaultTitle })));
+      setShifts(parsed.shifts.map((s) => ({
+        ...s,
+        title: s.officeActivities.length
+          ? `${settings.defaultTitle} | ${s.officeActivities.join(', ')} | Kantoor`
+          : settings.defaultTitle,
+      })));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -288,7 +293,12 @@ export default function App() {
                 onChange={(e) => {
                   const title = e.target.value;
                   setSettings((s) => ({ ...s, defaultTitle: title }));
-                  setShifts((prev) => prev.map((s) => ({ ...s, title })));
+                  setShifts((prev) => prev.map((s) => ({
+                    ...s,
+                    title: s.officeActivities.length
+                      ? `${title} | ${s.officeActivities.join(', ')} | Kantoor`
+                      : title,
+                  })));
                 }}
               />
             </div>
@@ -301,6 +311,7 @@ export default function App() {
             </div>
           </div>
 
+          <div className="table-wrap">
           <table>
             <thead>
               <tr>
@@ -320,29 +331,29 @@ export default function App() {
                 const state = importState[s.id];
                 return (
                   <tr key={s.id}>
-                    <td>
+                    <td className="cell-check">
                       <input type="checkbox" checked={s.include}
                         onChange={(e) => patchShift(s.id, { include: e.target.checked })} />
                     </td>
-                    <td>
+                    <td data-label="Datum">
                       <input type="date" value={s.date ?? ''}
                         onChange={(e) => patchShift(s.id, { date: e.target.value })} />
                     </td>
-                    <td className="muted">{s.date ? weekdayOf(s.date) : '—'}</td>
-                    <td>
+                    <td className="muted" data-label="Dag">{s.date ? weekdayOf(s.date) : '—'}</td>
+                    <td data-label="Van">
                       <input type="time" value={s.start}
                         onChange={(e) => patchShift(s.id, { start: e.target.value })} />
                     </td>
-                    <td>
+                    <td data-label="Tot">
                       <input type="time" value={s.end}
                         onChange={(e) => patchShift(s.id, { end: e.target.value })} />
                       {s.endsNextDay && <span className="muted"> +1d</span>}
                     </td>
-                    <td>
-                      <input type="text" value={s.title} style={{ width: 110 }}
+                    <td data-label="Titel">
+                      <input type="text" value={s.title} className="title-input"
                         onChange={(e) => patchShift(s.id, { title: e.target.value })} />
                     </td>
-                    <td>
+                    <td data-label="Activiteiten">
                       <details>
                         <summary>{s.activities.length} activiteiten</summary>
                         <ul className="acts">
@@ -353,14 +364,14 @@ export default function App() {
                       </details>
                       {s.warnings.map((w, i) => <div className="note warn" key={i}>{w}</div>)}
                     </td>
-                    <td>
+                    <td data-label="Status">
                       {state === 'pending' && <span className="muted">bezig…</span>}
                       {state === 'created' && <span style={{ color: 'var(--ok)' }}>toegevoegd</span>}
                       {state === 'updated' && <span style={{ color: 'var(--ok)' }}>bijgewerkt</span>}
                       {state && !['pending', 'created', 'updated'].includes(state) &&
                         <span style={{ color: 'var(--err)' }}>{state}</span>}
                     </td>
-                    <td>
+                    <td className="cell-delete">
                       <button
                         className="iconbtn"
                         title="Verwijder deze shift uit de lijst"
@@ -375,6 +386,7 @@ export default function App() {
               })}
             </tbody>
           </table>
+          </div>
           {!shifts.length && (
             <p className="muted">Alle shifts verwijderd. Sleep hierboven een nieuwe screenshot om verder te gaan.</p>
           )}
