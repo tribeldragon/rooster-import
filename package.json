@@ -12,6 +12,7 @@
     "test:parser": "node --experimental-strip-types scripts/test-parser.ts"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.22.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tesseract.js": "^5.1.1"

@@ -1,23 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseSchedule, addDays, weekdayOf, type ParseResult, type Shift } from './lib/parse';
 import { fileToDataUrl, runOcr, type Progress } from './lib/ocr';
-import {
-  buildEvent, listCalendars, requestToken, revokeToken, upsertEvent,
-  type CalendarEntry, type EventSettings, type Token,
-} from './lib/google';
+import type { CalendarEntry, CalendarProvider, EventSettings, ProviderId, Token } from './lib/calendar';
+import { google } from './lib/google';
+import { microsoft } from './lib/microsoft';
+
+const PROVIDERS: Record<ProviderId, CalendarProvider> = { google, microsoft };
 
 interface Settings extends EventSettings {
-  clientId: string;
   defaultTitle: string;
 }
 
 const SETTINGS_KEY = 'rooster-import.settings';
 const CALENDAR_KEY = 'rooster-import.calendar';
-/** Remembers that consent was given, so the next visit can get a token silently. */
+/** Which provider consent was given for, so the next visit can get a token silently. */
 const CONNECTED_KEY = 'rooster-import.connected';
 
 const defaultSettings: Settings = {
-  clientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) ?? '',
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Amsterdam',
   reminderMinutes: null,
   defaultTitle: 'Werk',
@@ -27,10 +26,8 @@ function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
-      const merged = { ...defaultSettings, ...JSON.parse(raw) } as Settings;
-      // a client ID from .env wins over an empty stored one
-      if (!merged.clientId) merged.clientId = defaultSettings.clientId;
-      return merged;
+      const { clientId: _old, ...stored } = JSON.parse(raw); // client IDs now come from .env only
+      return { ...defaultSettings, ...stored } as Settings;
     }
   } catch { /* ignore */ }
   return defaultSettings;
@@ -47,6 +44,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
+  const [provider, setProvider] = useState<CalendarProvider | null>(null);
   const [token, setToken] = useState<Token | null>(null);
   const [calendars, setCalendars] = useState<CalendarEntry[]>([]);
   const [calendarId, setCalendarId] = useState<string>(localStorage.getItem(CALENDAR_KEY) ?? '');
@@ -130,12 +128,12 @@ export default function App() {
     setShifts((prev) => prev.map((s) => (s.date ? { ...s, date: addDays(s.date, delta) } : s)));
   };
 
-  /* --------------------------------------------------------------- google */
+  /* ------------------------------------------------------------- calendar */
 
-  const ensureToken = async (silent = false): Promise<Token> => {
-    if (token && token.expiresAt > Date.now()) return token;
-    if (!settings.clientId) throw new Error('Geen Google client ID: zet VITE_GOOGLE_CLIENT_ID in .env en herstart de dev-server.');
-    const t = await requestToken(settings.clientId, { silent });
+  const ensureToken = async (p: CalendarProvider, silent = false): Promise<Token> => {
+    if (p === provider && token && token.expiresAt > Date.now()) return token;
+    if (!p.clientId) throw new Error(`Geen client ID voor ${p.label}: zet ${p.envVar} in .env en herstart de dev-server.`);
+    const t = await p.requestToken({ silent });
     setToken(t);
     return t;
   };
@@ -145,35 +143,44 @@ export default function App() {
     setCalendarId((cur) => (list.some((c) => c.id === cur) ? cur : list.find((c) => c.primary)?.id ?? list[0]?.id ?? ''));
   };
 
-  const connect = async () => {
+  const connect = async (p: CalendarProvider) => {
     setError(null);
     try {
-      const t = await ensureToken();
-      applyCalendars(await listCalendars(t.value));
-      localStorage.setItem(CONNECTED_KEY, '1');
+      const t = await ensureToken(p);
+      applyCalendars(await p.listCalendars(t.value));
+      setProvider(p);
+      localStorage.setItem(CONNECTED_KEY, p.id);
     } catch (e) {
+      setToken(null);
       setError((e as Error).message);
     }
   };
 
   const disconnect = () => {
-    if (token) revokeToken(token.value);
+    if (provider && token) provider.signOut(token);
     localStorage.removeItem(CONNECTED_KEY);
+    setProvider(null);
     setToken(null);
     setCalendars([]);
   };
 
   /** Already consented once? Then pick the session back up without any dialog. */
   useEffect(() => {
-    if (!settings.clientId || localStorage.getItem(CONNECTED_KEY) !== '1') return;
+    const stored = localStorage.getItem(CONNECTED_KEY);
+    // '1' is what older versions stored, back when Google was the only option
+    const p = stored === '1' ? google : PROVIDERS[stored as ProviderId];
+    if (!p?.clientId) return;
     let cancelled = false;
     (async () => {
       try {
-        const t = await requestToken(settings.clientId, { silent: true });
+        const t = await p.requestToken({ silent: true });
         if (cancelled) return;
+        const list = await p.listCalendars(t.value);
+        if (cancelled) return;
+        setProvider(p);
         setToken(t);
-        const list = await listCalendars(t.value);
-        if (!cancelled) applyCalendars(list);
+        applyCalendars(list);
+        localStorage.setItem(CONNECTED_KEY, p.id);
       } catch {
         localStorage.removeItem(CONNECTED_KEY); // consent expired or revoked
       }
@@ -185,22 +192,22 @@ export default function App() {
   const selected = useMemo(() => shifts.filter((s) => s.include && s.date), [shifts]);
 
   const doImport = async () => {
+    if (!provider) return;
     setError(null);
     setImporting(true);
     try {
-      let t = await ensureToken(true);
+      let t = await ensureToken(provider, true);
       for (const shift of selected) {
         setImportState((p) => ({ ...p, [shift.id]: 'pending' }));
-        const event = buildEvent(shift, settings);
         try {
-          const outcome = await upsertEvent(t.value, calendarId, event);
+          const outcome = await provider.upsertShift(t.value, calendarId, shift, settings);
           setImportState((p) => ({ ...p, [shift.id]: outcome }));
         } catch (e) {
           if ((e as { status?: number }).status === 401) {
-            // token died mid-import: ask Google for a new one and retry once
-            t = await requestToken(settings.clientId, { silent: false });
+            // token died mid-import: ask for a new one and retry once
+            t = await provider.requestToken({ silent: false });
             setToken(t);
-            const outcome = await upsertEvent(t.value, calendarId, event);
+            const outcome = await provider.upsertShift(t.value, calendarId, shift, settings);
             setImportState((p) => ({ ...p, [shift.id]: outcome }));
           } else {
             setImportState((p) => ({ ...p, [shift.id]: (e as Error).message }));
@@ -222,7 +229,7 @@ export default function App() {
     <div className="app">
       <header className="top">
         <h1>Rooster Import</h1>
-        <p>Screenshot van je weekrooster → Google Agenda</p>
+        <p>Screenshot van je weekrooster → Google Agenda of Outlook</p>
       </header>
 
       {/* ---------------------------------------------------------- upload */}
@@ -393,17 +400,20 @@ export default function App() {
         </section>
       )}
 
-      {/* ---------------------------------------------------------- google */}
+      {/* -------------------------------------------------------- calendar */}
       <section className="panel">
-        <h2>Naar Google Agenda</h2>
-        {!token ? (
+        <h2>{provider ? `Naar ${provider.label}` : 'Naar je agenda'}</h2>
+        {!provider || !token ? (
           <>
-            <button onClick={connect} disabled={!settings.clientId}>Inloggen met Google</button>
-            {!settings.clientId && (
-              <div className="note warn">
-                Geen Google client ID gevonden. Zet <code>VITE_GOOGLE_CLIENT_ID</code> in <code>.env</code> en herstart <code>npm run dev</code>.
+            <div className="row">
+              <button onClick={() => connect(google)} disabled={!google.clientId}>Inloggen met Google</button>
+              <button onClick={() => connect(microsoft)} disabled={!microsoft.clientId}>Inloggen met Microsoft</button>
+            </div>
+            {[google, microsoft].filter((p) => !p.clientId).map((p) => (
+              <div className="note warn" key={p.id}>
+                Geen client ID voor {p.label}. Zet <code>{p.envVar}</code> in <code>.env</code> en herstart <code>npm run dev</code>.
               </div>
-            )}
+            ))}
           </>
         ) : (
           <div className="row">

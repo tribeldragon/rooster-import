@@ -2,9 +2,15 @@
  * Google Identity Services (token flow) + Calendar REST API, no backend.
  */
 import { eventIdFor, shiftDescription, type Shift } from './parse';
+import {
+  shiftTimes,
+  type CalendarEntry, type CalendarProvider, type EventSettings, type Token, type UpsertOutcome,
+} from './calendar';
+
+const CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
-export const SCOPES = [
+const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/calendar.events',
 ].join(' ');
@@ -15,7 +21,7 @@ declare global {
 
 let gisPromise: Promise<void> | null = null;
 
-export function loadGis(): Promise<void> {
+function loadGis(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   if (gisPromise) return gisPromise;
   gisPromise = new Promise<void>((resolve, reject) => {
@@ -29,9 +35,7 @@ export function loadGis(): Promise<void> {
   return gisPromise;
 }
 
-export interface Token { value: string; expiresAt: number }
-
-export async function requestToken(clientId: string, opts: { silent?: boolean } = {}): Promise<Token> {
+async function requestToken(clientId: string, opts: { silent?: boolean } = {}): Promise<Token> {
   await loadGis();
   return new Promise<Token>((resolve, reject) => {
     const client = window.google.accounts.oauth2.initTokenClient({
@@ -48,9 +52,6 @@ export async function requestToken(clientId: string, opts: { silent?: boolean } 
   });
 }
 
-export function revokeToken(token: string): void {
-  window.google?.accounts?.oauth2?.revoke(token, () => {});
-}
 
 async function api(token: string, path: string, init: RequestInit = {}): Promise<any> {
   const res = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
@@ -71,63 +72,44 @@ async function api(token: string, path: string, init: RequestInit = {}): Promise
   return body;
 }
 
-export interface CalendarEntry { id: string; summary: string; primary: boolean; accessRole: string }
-
-export async function listCalendars(token: string): Promise<CalendarEntry[]> {
+async function listCalendars(token: string): Promise<CalendarEntry[]> {
   const data = await api(token, '/users/me/calendarList?minAccessRole=writer&maxResults=250');
   return (data.items ?? []).map((c: any) => ({
     id: c.id,
     summary: c.summaryOverride || c.summary,
     primary: !!c.primary,
-    accessRole: c.accessRole,
   }));
 }
 
-export interface EventSettings {
-  timeZone: string;
-  reminderMinutes: number | null;
-  colorId?: string;
-}
-
-export function buildEvent(shift: Shift, settings: EventSettings) {
-  const date = shift.date!;
-  const endDate = shift.endsNextDay ? addIso(date, 1) : date;
+function buildEvent(shift: Shift, settings: EventSettings) {
+  const { start, end } = shiftTimes(shift);
   return {
     id: eventIdFor(shift),
     summary: shift.title || 'Werk',
     description: shiftDescription(shift),
-    start: { dateTime: `${date}T${shift.start}:00`, timeZone: settings.timeZone },
-    end: { dateTime: `${endDate}T${shift.end}:00`, timeZone: settings.timeZone },
+    start: { dateTime: start, timeZone: settings.timeZone },
+    end: { dateTime: end, timeZone: settings.timeZone },
     status: 'confirmed',
     transparency: 'opaque',
     source: { title: 'Rooster Import', url: 'http://localhost:5173' },
-    extendedProperties: { private: { roosterImport: '1', roosterWeek: date } },
+    extendedProperties: { private: { roosterImport: '1', roosterWeek: shift.date! } },
     reminders: settings.reminderMinutes === null
       ? { useDefault: true }
       : { useDefault: false, overrides: [{ method: 'popup', minutes: settings.reminderMinutes }] },
-    ...(settings.colorId ? { colorId: settings.colorId } : {}),
   };
 }
-
-function addIso(iso: string, n: number): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + n);
-  const p = (x: number) => (x < 10 ? '0' + x : String(x));
-  return `${dt.getUTCFullYear()}-${p(dt.getUTCMonth() + 1)}-${p(dt.getUTCDate())}`;
-}
-
-export type UpsertOutcome = 'created' | 'updated';
 
 /**
  * Deterministic event ids make re-importing the same week safe: the second
  * import updates the existing event instead of creating a duplicate.
  */
-export async function upsertEvent(
+async function upsertShift(
   token: string,
   calendarId: string,
-  event: ReturnType<typeof buildEvent>,
+  shift: Shift,
+  settings: EventSettings,
 ): Promise<UpsertOutcome> {
+  const event = buildEvent(shift, settings);
   const cal = encodeURIComponent(calendarId);
   try {
     await api(token, `/calendars/${cal}/events`, { method: 'POST', body: JSON.stringify(event) });
@@ -143,3 +125,14 @@ export async function upsertEvent(
     return 'updated';
   }
 }
+
+export const google: CalendarProvider = {
+  id: 'google',
+  label: 'Google Agenda',
+  clientId: CLIENT_ID,
+  envVar: 'VITE_GOOGLE_CLIENT_ID',
+  requestToken: (opts) => requestToken(CLIENT_ID, opts),
+  signOut: (token: Token) => window.google?.accounts?.oauth2?.revoke(token.value, () => {}),
+  listCalendars,
+  upsertShift,
+};

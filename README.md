@@ -1,7 +1,7 @@
 # Rooster Import
 
 Upload een screenshot van je weekrooster, controleer wat eruit gelezen wordt, en zet de
-shifts in een Google Agenda naar keuze.
+shifts in een Google Agenda of Outlook-agenda (Microsoft-account) naar keuze.
 
 - **OCR in de browser** (Tesseract.js, Nederlands + Engels) — er gaat geen screenshot naar een server.
 - **Eén afspraak per shift**, met de activiteiten (Voice, Admin Klant, Lunch, Chat, Coaching, …)
@@ -55,6 +55,37 @@ Gebruikte scopes: `calendar.readonly` (lijst met agenda's ophalen) en `calendar.
 (afspraken aanmaken/bijwerken). De token blijft in het geheugen van het tabblad; er wordt niets
 op een server opgeslagen.
 
+## Microsoft instellen (eenmalig)
+
+Werkt met persoonlijke Microsoft-accounts (outlook.com, hotmail, live) én werk-/schoolaccounts.
+
+1. [entra.microsoft.com](https://entra.microsoft.com/) → **Applications → App registrations →
+   New registration** (met een persoonlijk account kan dat ook via
+   [portal.azure.com](https://portal.azure.com/) → *App registrations*).
+   - Name: bijv. *Rooster Import*
+   - Supported account types: **Accounts in any organizational directory and personal Microsoft
+     accounts**
+   - Redirect URI: platform **Single-page application (SPA)**,
+     `http://localhost:5173/redirect.html`
+2. **API permissions → Add a permission → Microsoft Graph → Delegated** →
+   `Calendars.ReadWrite`. (`User.Read` staat er standaard al bij; laten staan mag.)
+3. Kopieer de **Application (client) ID** van het overzichtsscherm naar `.env`:
+
+   ```
+   VITE_MICROSOFT_CLIENT_ID=00000000-0000-0000-0000-000000000000
+   ```
+
+   en herstart `npm run dev`. Een client secret is niet nodig (SPA-flow met PKCE).
+
+`redirect.html` is een klein tussenpagina'tje: de Microsoft-login landt daar in de popup en geeft
+het resultaat door aan het app-venster. Het redirect-adres in Entra moet daarom precies
+`…/redirect.html` zijn, en platform *SPA* (bij *Web* krijg je een CORS-/`AADSTS9002326`-fout).
+
+Omdat Microsoft Graph geen zelfgekozen event-ID's toestaat, krijgt elk Outlook-event het
+shift-ID mee in een *extended property*; bij opnieuw importeren wordt het event daarop
+teruggezocht en bijgewerkt. De tokens bewaart MSAL in `localStorage`; **Uitloggen** wist ze uit
+deze browser (je Microsoft-sessie elders blijft staan).
+
 ## Hoe het parsen werkt
 
 `src/lib/ocr.ts`
@@ -73,13 +104,13 @@ op een server opgeslagen.
     die leest slechter. Wijkt de linkerkolom af, dan verschijnt er een waarschuwing.
   - Tijden die niet aansluiten worden gecorrigeerd en met `*` gemarkeerd.
 
-Alles is te corrigeren in de reviewtabel voordat er iets naar Google gaat: per rij de datum en
+Alles is te corrigeren in de reviewtabel voordat er iets naar je agenda gaat: per rij de datum en
 tijden aanpassen, een rij uitvinken, of hem met ✕ uit de lijst gooien. **Tabel leegmaken** wist de
 hele lijst; daarna sleep je gewoon de volgende screenshot erin. Een nieuwe screenshot vervangt de
 lijst.
 
-De Google-sessie blijft daarbij staan. Na één keer toestemming geven haalt de app bij een volgend
-bezoek stil een nieuwe token op (`prompt: ''`), dus na herladen hoef je niet opnieuw in te loggen —
+De agenda-sessie blijft daarbij staan. Na één keer toestemming geven haalt de app bij een volgend
+bezoek stil een nieuwe token op (Google: `prompt: ''`, Microsoft: MSAL `acquireTokenSilent`), dus na herladen hoef je niet opnieuw in te loggen —
 tot je op **Uitloggen** klikt, dan wordt de token ingetrokken. Verloopt de token midden in een
 import, dan vraagt de app er eenmalig een nieuwe en gaat verder.
 
@@ -99,7 +130,10 @@ Nieuwe fixture nodig na een layoutwijziging? Zie de OCR-instellingen in `src/lib
 ```
 src/lib/ocr.ts      voorbewerking + Tesseract (browser)
 src/lib/parse.ts    pure parser, zonder browser-API's
-src/lib/google.ts   OAuth-token + Calendar API
+src/lib/calendar.ts gedeelde interface voor agenda-providers
+src/lib/google.ts   Google OAuth-token + Calendar API
+src/lib/microsoft.ts  Microsoft-login (MSAL) + Graph calendar API
+redirect.html       redirect-URI voor de Microsoft-login
 src/App.tsx         upload, reviewtabel, import
 scripts/            asset-prep en parsertest + OCR-fixture
 samples/            voorbeeldscreenshot waar de test op draait

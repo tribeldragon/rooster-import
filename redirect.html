@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Inloggen…</title>
+  </head>
+  <body>
+    <!-- Redirect URI for Microsoft login: passes the response back to the app window. -->
+    <script type="module">
+      import { broadcastResponseToMainFrame } from '@azure/msal-browser/redirect-bridge';
+      broadcastResponseToMainFrame().catch((e) => { document.body.textContent = e.message; });
+    </script>
+  </body>
+</html>
