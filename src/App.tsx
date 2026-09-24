@@ -231,6 +231,7 @@ export default function App() {
         <h1>Rooster Import</h1>
         <p>Screenshot van je weekrooster → Google Agenda of Outlook</p>
       </header>
+      <hr className="tear" />
 
       {/* ---------------------------------------------------------- upload */}
       <section className="panel">
@@ -319,9 +320,10 @@ export default function App() {
             </div>
           </div>
 
-          <p className="muted legend">
-            <code>*</code> = tijd automatisch gecorrigeerd &nbsp;·&nbsp; <code>⚠</code> = lage OCR-betrouwbaarheid, controleer dit even
-          </p>
+          <div className="muted legend">
+            <p><code>*</code> tijd is automatisch gecorrigeerd</p>
+            <p><code>⚠</code> lage OCR-betrouwbaarheid — controleer deze shift even</p>
+          </div>
 
           <div className="table-wrap">
           <table>
@@ -372,7 +374,7 @@ export default function App() {
                         <ul className="acts">
                           {s.activities.map((a, i) => (
                             <li key={i}>
-                              {a.start}–{a.end} {a.label}
+                              <span className="mono">{a.start}–{a.end}</span> {a.label}
                               {a.repaired ? ' *' : ''}
                               {a.conf < LOW_CONF_THRESHOLD ? ' ⚠' : ''}
                             </li>
@@ -383,10 +385,10 @@ export default function App() {
                     </td>
                     <td data-label="Status">
                       {state === 'pending' && <span className="muted">bezig…</span>}
-                      {state === 'created' && <span style={{ color: 'var(--ok)' }}>toegevoegd</span>}
-                      {state === 'updated' && <span style={{ color: 'var(--ok)' }}>bijgewerkt</span>}
+                      {state === 'created' && <span className="status ok">toegevoegd</span>}
+                      {state === 'updated' && <span className="status ok">bijgewerkt</span>}
                       {state && !['pending', 'created', 'updated'].includes(state) &&
-                        <span style={{ color: 'var(--err)' }}>{state}</span>}
+                        <span className="status err">{state}</span>}
                     </td>
                     <td className="cell-delete">
                       <button

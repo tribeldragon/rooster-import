@@ -1,33 +1,39 @@
 :root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --line: #e3e6ea;
-  --text: #1b1f24;
-  --muted: #6a737d;
-  --accent: #2f6df6;
-  --accent-soft: #eaf0fe;
-  --warn: #b45309;
-  --warn-soft: #fef3c7;
-  --ok: #15803d;
-  --ok-soft: #dcfce7;
-  --err: #b91c1c;
-  --radius: 10px;
+  --bg: #e3e1ec;
+  --panel: #fff8e7;
+  --line: #e3d2a0;
+  --text: #241f3d;
+  --muted: #746e8c;
+  --accent: #c6342e;
+  --accent-soft: #f7dad6;
+  --on-accent: #fff8e7;
+  --warn: #96650a;
+  --warn-soft: #f5e6c4;
+  --ok: #1b8f78;
+  --ok-soft: #d9f0ea;
+  --err: #c6342e;
+  --err-soft: #f7dad6;
+  --radius: 6px;
+  --font-display: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14171c;
-    --panel: #1b1f26;
-    --line: #2b313a;
-    --text: #e8eaed;
-    --muted: #9aa4b2;
-    --accent: #6f9bff;
-    --accent-soft: #1e2a42;
-    --warn: #fbbf24;
-    --warn-soft: #3a2f14;
-    --ok: #4ade80;
-    --ok-soft: #14311f;
-    --err: #f87171;
+    --bg: #15132a;
+    --panel: #211d3b;
+    --line: #3c3560;
+    --text: #f1eefa;
+    --muted: #a79fc7;
+    --accent: #ff6b5b;
+    --accent-soft: #40201d;
+    --on-accent: #241531;
+    --warn: #e8b34c;
+    --warn-soft: #3a2d12;
+    --ok: #33d6b8;
+    --ok-soft: #103330;
+    --err: #ff6b5b;
+    --err-soft: #40201d;
   }
 }
 
@@ -39,19 +45,37 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font: 15px/1.5 var(--font-display);
   overflow-x: hidden;
+  position: relative;
 }
 
-.app { max-width: 1100px; margin: 0 auto; padding: 24px 16px 80px; }
+.app { max-width: 1100px; margin: 0 auto; padding: 28px 16px 80px; }
 
 @media (max-width: 640px) {
-  .app { padding: 16px 12px 60px; }
+  .app { padding: 20px 12px 60px; }
 }
 
-header.top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
-header.top h1 { font-size: 22px; margin: 0; }
-header.top p { margin: 0; color: var(--muted); font-size: 14px; }
+header.top h1 {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  margin: 0;
+}
+header.top p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+/* Echoes the dashed vocabulary used on the drop zone and table rows below:
+   the header tears off from the rest of the ticket. */
+.tear {
+  border: none;
+  border-top: 2px dashed var(--line);
+  margin: 18px 0 22px;
+}
 
 .panel {
   background: var(--panel);
@@ -60,19 +84,46 @@ header.top p { margin: 0; color: var(--muted); font-size: 14px; }
   padding: 16px;
   margin-bottom: 16px;
 }
-.panel > h2 { font-size: 15px; margin: 0 0 12px; letter-spacing: .01em; }
+.panel > h2 { font-size: 16px; font-weight: 700; margin: 0 0 12px; letter-spacing: -.005em; }
 
+/* Drop zone reads as a ticket slot: dashed edge, punched side notches. */
 .drop {
+  position: relative;
   border: 2px dashed var(--line);
-  border-radius: var(--radius);
-  padding: 32px 16px;
+  border-radius: 14px;
+  padding: 36px 16px;
   text-align: center;
   color: var(--muted);
   cursor: pointer;
-  transition: border-color .15s, background .15s;
+  transition: transform .18s ease, border-color .15s, background .15s;
 }
-.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-.drop strong { color: var(--text); display: block; margin-bottom: 4px; }
+.drop::before, .drop::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px dashed var(--line);
+  transform: translateY(-50%);
+}
+.drop::before { left: -11px; }
+.drop::after { right: -11px; }
+.drop:hover, .drop.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.drop.over { transform: perspective(600px) rotateX(3deg) translateY(-2px); }
+.drop:hover::before, .drop:hover::after,
+.drop.over::before, .drop.over::after { border-color: var(--accent); }
+.drop strong { color: var(--text); display: block; margin-bottom: 4px; font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .drop { transition: border-color .15s, background .15s; }
+  .drop.over { transform: none; }
+}
 
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
 .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 160px; min-width: 0; }
@@ -89,19 +140,42 @@ input, select, button, textarea {
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 7px 10px;
+}
+input[type="time"], input[type="date"] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 input[type="checkbox"] { width: 16px; height: 16px; padding: 0; accent-color: var(--accent); }
 button {
   cursor: pointer;
   background: var(--accent);
-  border-color: transparent;
-  color: #fff;
-  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 8px 8px 8px 2px;
+  color: var(--on-accent);
+  font-weight: 700;
+  font-family: var(--font-display);
+  box-shadow: 3px 3px 0 var(--text);
+  transition: transform .12s ease, box-shadow .12s ease;
 }
-button.secondary { background: var(--panel); color: var(--text); border-color: var(--line); font-weight: 500; }
-button:disabled { opacity: .5; cursor: not-allowed; }
+button:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--text); }
+button:active:not(:disabled) { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--text); }
+button.secondary {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--line);
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: none;
+}
+button.secondary:hover:not(:disabled) { transform: none; box-shadow: none; border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+  button:hover:not(:disabled), button:active:not(:disabled) { transform: none; }
+}
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -110,14 +184,41 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-th { font-size: 12px; color: var(--muted); font-weight: 600; }
-td input[type="time"], td input[type="date"] { padding: 5px 7px; }
+th, td { text-align: left; padding: 8px 8px; vertical-align: middle; }
+thead th { border-bottom: 2px solid var(--line); font-size: 12px; color: var(--muted); font-weight: 600; }
+tbody td { border-bottom: 1px dashed var(--line); }
 tr.off td { color: var(--muted); }
 .title-input { width: 110px; max-width: 100%; }
 
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Status reads as an ink stamp rather than a flat pill: hard offset shadow,
+   a slight rotation, like someone pressed it down on the row. */
+.status {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  transform: rotate(-2deg);
+  animation: stamp .18s ease-out;
+}
+.status.ok { background: var(--ok-soft); color: var(--ok); }
+.status.err { background: var(--err-soft); color: var(--err); }
+
+@keyframes stamp {
+  from { transform: rotate(-2deg) scale(1.5); opacity: 0; }
+  to { transform: rotate(-2deg) scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status { animation: none; }
+}
+
 /* Below this width the table itself doesn't fit comfortably even scrolled -
-   render each shift as a stacked card instead of a wide row (phones). */
+   render each shift as a stacked card instead of a wide row (phones). A
+   clipped corner marks it as a ticket stub rather than a generic card. */
 @media (max-width: 640px) {
   .table-wrap { overflow-x: visible; }
   table, tbody, tr, td { display: block; width: 100%; }
@@ -129,8 +230,9 @@ tr.off td { color: var(--muted); }
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 10px;
+    background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
     padding: 10px 40px 10px 12px;
     margin-bottom: 10px;
   }
@@ -162,10 +264,16 @@ tr.off td { color: var(--muted); }
   td input[type="time"], td input[type="date"] { min-width: 0; }
 }
 
-.note { font-size: 13px; border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+.note {
+  font-size: 13px;
+  padding: 8px 10px 8px 12px;
+  margin: 6px 0;
+  border-left: 3px solid currentColor;
+  border-radius: 0 6px 6px 0;
+}
 .note.warn { background: var(--warn-soft); color: var(--warn); }
 .note.ok { background: var(--ok-soft); color: var(--ok); }
-.note.err { background: var(--warn-soft); color: var(--err); }
+.note.err { background: var(--err-soft); color: var(--err); }
 
 .acts { font-size: 13px; color: var(--muted); margin: 4px 0 0; padding-left: 18px; }
 details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
@@ -173,17 +281,19 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .preview { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; margin-top: 10px; }
 .muted { color: var(--muted); font-size: 13px; }
 .legend { margin: 0 0 10px; }
+.legend p { margin: 2px 0; }
 .grow { flex: 1 1 200px; }
 .spacer { flex: 1; }
-code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; font-size: 12px; font-family: var(--font-mono); }
 
 .iconbtn {
   background: transparent;
   border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--muted);
   font-weight: 400;
   line-height: 1;
   padding: 4px 8px;
-  border-radius: 6px;
+  box-shadow: none;
 }
-.iconbtn:hover { color: var(--err); border-color: var(--line); }
+.iconbtn:hover { color: var(--err); border-color: var(--line); transform: none; box-shadow: none; }
