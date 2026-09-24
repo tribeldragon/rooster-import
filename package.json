@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "prepare-assets": "node scripts/prepare-assets.mjs",
     "postinstall": "node scripts/prepare-assets.mjs",
-    "test:parser": "node --experimental-strip-types scripts/test-parser.ts"
+    "test:parser": "node --experimental-strip-types scripts/test-parser.ts",
+    "test:config": "node --experimental-strip-types scripts/test-config.ts",
+    "test": "npm run test:parser && npm run test:config"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.22.0",

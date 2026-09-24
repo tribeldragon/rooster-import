@@ -11,6 +11,7 @@ import {
   shiftTimes,
   type CalendarEntry, type CalendarProvider, type EventSettings, type Token, type UpsertOutcome,
 } from './calendar';
+import { buildRedirectUri } from './redirectUri';
 
 const CLIENT_ID = (import.meta.env.VITE_MICROSOFT_CLIENT_ID as string | undefined) ?? '';
 const SCOPES = ['Calendars.ReadWrite'];
@@ -32,7 +33,7 @@ function getApp(): Promise<IPublicClientApplication> {
       // "common" accepts both personal Microsoft accounts and work/school accounts
       authority: 'https://login.microsoftonline.com/common',
       // tiny page that hands the login response back to this window (see redirect.html)
-      redirectUri: `${window.location.origin}${import.meta.env.BASE_URL}redirect.html`,
+      redirectUri: buildRedirectUri(window.location.origin, import.meta.env.BASE_URL),
     },
     // keeps the session across reloads, like the Google "connected" flag
     cache: { cacheLocation: 'localStorage' },
