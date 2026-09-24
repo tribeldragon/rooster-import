@@ -32,7 +32,7 @@ function getApp(): Promise<IPublicClientApplication> {
       // "common" accepts both personal Microsoft accounts and work/school accounts
       authority: 'https://login.microsoftonline.com/common',
       // tiny page that hands the login response back to this window (see redirect.html)
-      redirectUri: `${window.location.origin}/redirect.html`,
+      redirectUri: `${window.location.origin}${import.meta.env.BASE_URL}redirect.html`,
     },
     // keeps the session across reloads, like the Google "connected" flag
     cache: { cacheLocation: 'localStorage' },
