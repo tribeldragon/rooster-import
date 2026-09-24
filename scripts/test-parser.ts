@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseSchedule, shiftDescription, type OcrWord } from '../src/lib/parse.ts';
+import { parseSchedule, parseTimeRange, shiftDescription, type OcrWord } from '../src/lib/parse.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(fs.readFileSync(path.join(here, 'fixture.json'), 'utf8')) as {
@@ -92,6 +92,38 @@ check(
   { start: '12:00', repaired: true },
 );
 check('gesplitste dag: titel bevat Coaching', splitDay?.title, 'Werk | Coaching | Kantoor');
+
+/* Regression: OCR-confused letters standing in for digits inside a time range. */
+check(
+  'digit-fix: letters die op cijfers lijken worden hersteld',
+  parseTimeRange('Voice O9:3O - 12:0O'),
+  { start: '09:30', end: '12:00', rest: 'Voice' },
+);
+
+/*
+ * Regression: the first activity of a shift has no predecessor to repair its
+ * start time against, unlike later activities in the chain. Use the shift's
+ * declared start time (left column) as the trusted anchor instead.
+ */
+const firstActivitySynthetic = parseSchedule({
+  fullWords: [
+    { text: 'maandag 7 september', conf: 90, x0: 10, x1: 160, y0: 97, y1: 103 },
+    { text: '09:30 - 18:00', conf: 90, x0: 10, x1: 160, y0: 105, y1: 111 },
+    { text: 'Voice 09:35 - 18:00', conf: 90, x0: 650, x1: 900, y0: 98, y1: 104 },
+  ],
+  imageWidth: 1000,
+  fallbackYear: 2026,
+});
+const firstActivityShift = firstActivitySynthetic.shifts[0];
+check(
+  'eerste activiteit: starttijd hersteld naar linkerkolom',
+  firstActivityShift?.activities[0] && {
+    start: firstActivityShift.activities[0].start,
+    repaired: firstActivityShift.activities[0].repaired,
+  },
+  { start: '09:30', repaired: true },
+);
+check('eerste activiteit: shift-starttijd volgt de correctie', firstActivityShift?.start, '09:30');
 
 console.log('\n--- omschrijving maandag ---\n' + shiftDescription(mon));
 console.log(`\n${failures ? `${failures} test(s) MISLUKT` : 'Alle tests geslaagd'}`);

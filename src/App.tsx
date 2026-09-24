@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { parseSchedule, addDays, weekdayOf, type ParseResult, type Shift } from './lib/parse';
+import { parseSchedule, addDays, weekdayOf, LOW_CONF_THRESHOLD, type ParseResult, type Shift } from './lib/parse';
 import { fileToDataUrl, runOcr, type Progress } from './lib/ocr';
 import type { CalendarEntry, CalendarProvider, EventSettings, ProviderId, Token } from './lib/calendar';
 import { google } from './lib/google';
@@ -289,12 +289,13 @@ export default function App() {
 
           <div className="row" style={{ marginBottom: 12 }}>
             <div className="field">
-              <label>Eerste werkdag (verschuift alle datums)</label>
-              <input type="date" value={firstDate} onChange={(e) => moveWeek(e.target.value)} />
+              <label htmlFor="first-workday">Eerste werkdag (verschuift alle datums)</label>
+              <input id="first-workday" type="date" value={firstDate} onChange={(e) => moveWeek(e.target.value)} />
             </div>
             <div className="field">
-              <label>Titel voor alle shifts</label>
+              <label htmlFor="default-title">Titel voor alle shifts</label>
               <input
+                id="default-title"
                 type="text"
                 value={settings.defaultTitle}
                 onChange={(e) => {
@@ -311,12 +312,16 @@ export default function App() {
             </div>
             <div className="spacer" />
             <div className="field">
-              <label>&nbsp;</label>
+              <span className="field-label-spacer" aria-hidden="true">&nbsp;</span>
               <span className="muted">
                 {result.days.filter((d) => d.off).length} vrije dag(en) overgeslagen
               </span>
             </div>
           </div>
+
+          <p className="muted legend">
+            <code>*</code> = tijd automatisch gecorrigeerd &nbsp;·&nbsp; <code>⚠</code> = lage OCR-betrouwbaarheid, controleer dit even
+          </p>
 
           <div className="table-wrap">
           <table>
@@ -340,6 +345,7 @@ export default function App() {
                   <tr key={s.id}>
                     <td className="cell-check">
                       <input type="checkbox" checked={s.include}
+                        aria-label={`Shift van ${s.date ?? 'onbekende datum'} meenemen bij importeren`}
                         onChange={(e) => patchShift(s.id, { include: e.target.checked })} />
                     </td>
                     <td data-label="Datum">
@@ -365,7 +371,11 @@ export default function App() {
                         <summary>{s.activities.length} activiteiten</summary>
                         <ul className="acts">
                           {s.activities.map((a, i) => (
-                            <li key={i}>{a.start}–{a.end} {a.label}{a.repaired ? ' *' : ''}</li>
+                            <li key={i}>
+                              {a.start}–{a.end} {a.label}
+                              {a.repaired ? ' *' : ''}
+                              {a.conf < LOW_CONF_THRESHOLD ? ' ⚠' : ''}
+                            </li>
                           ))}
                         </ul>
                       </details>
@@ -418,16 +428,17 @@ export default function App() {
         ) : (
           <div className="row">
             <div className="field grow">
-              <label>Agenda</label>
-              <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
+              <label htmlFor="calendar-select">Agenda</label>
+              <select id="calendar-select" value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
                 {calendars.map((c) => (
                   <option key={c.id} value={c.id}>{c.summary}{c.primary ? ' (standaard)' : ''}</option>
                 ))}
               </select>
             </div>
             <div className="field">
-              <label>Herinnering</label>
+              <label htmlFor="reminder-select">Herinnering</label>
               <select
+                id="reminder-select"
                 value={settings.reminderMinutes ?? ''}
                 onChange={(e) => setSettings((s) => ({
                   ...s, reminderMinutes: e.target.value === '' ? null : Number(e.target.value),
@@ -441,13 +452,13 @@ export default function App() {
               </select>
             </div>
             <div className="field">
-              <label>&nbsp;</label>
+              <span className="field-label-spacer" aria-hidden="true">&nbsp;</span>
               <button onClick={doImport} disabled={importing || !calendarId || !selected.length}>
                 {importing ? 'Bezig…' : selected.length ? `${selected.length} shift(s) importeren` : 'Geen shifts geselecteerd'}
               </button>
             </div>
             <div className="field">
-              <label>&nbsp;</label>
+              <span className="field-label-spacer" aria-hidden="true">&nbsp;</span>
               <button className="secondary" onClick={disconnect}>Uitloggen</button>
             </div>
           </div>

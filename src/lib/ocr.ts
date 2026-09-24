@@ -4,7 +4,7 @@
  * column (dates), which OCRs much better when it is isolated.
  */
 import { createWorker } from 'tesseract.js';
-import { fuzzyIndex, type OcrWord } from './parse';
+import { computeSplitX, type OcrWord } from './parse';
 
 export interface Progress { stage: string; progress: number }
 
@@ -143,9 +143,7 @@ export async function runOcr(dataUrl: string, onProgress: (p: Progress) => void)
     const fullCanvas = preprocess(img, scale);
     const fullWords = await withTimeout(words(worker, fullCanvas, scale), 300_000, 'OCR duurde te lang.');
 
-    // Column 2 starts at the "Activiteiten" header; fall back to a fixed ratio.
-    const header = fullWords.find((w) => fuzzyIndex(w.text, ['activiteiten'], 3) === 0);
-    const splitX = header ? header.x0 - 8 : Math.round(width * 0.594);
+    const { splitX } = computeSplitX(fullWords, width);
 
     onProgress({ stage: 'Datums herkennen', progress: 0.7 });
     const leftCanvas = preprocess(img, scale, { left: 0, top: 0, width: Math.max(40, splitX), height });

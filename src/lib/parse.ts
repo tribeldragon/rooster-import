@@ -18,7 +18,12 @@ export interface Activity {
   end: string;
   y: number;
   repaired: boolean;
+  /** Lowest word confidence (0-100) behind this activity's OCR line. */
+  conf: number;
 }
+
+/** Below this Tesseract confidence, an activity is flagged for manual review. */
+export const LOW_CONF_THRESHOLD = 60;
 
 export interface DayRow {
   index: number;
@@ -133,13 +138,18 @@ function validTime(h: number, m: number): boolean {
   return h >= 0 && h <= 23 && m >= 0 && m <= 59;
 }
 
+/** Digits, or a lone OCR-confusable letter/symbol standing in for one. */
+const DIGITISH = '[0-9oOQDlIi|\\]\\[zZsSbGtTB&gq]';
+
 /** Pull the trailing "HH:MM - HH:MM" (colons optional, sloppy separators) out of a line. */
 export function parseTimeRange(text: string): { start: string; end: string; rest: string } | null {
   const cleaned = text.replace(/\s+/g, ' ').trim();
-  const re = /(\d{1,2})\s*[:.;']?\s*(\d{2})\s*[-–—~=_>]+\s*(\d{1,2})\s*[:.;']?\s*(\d{2})\.?\s*$/;
+  const re = new RegExp(
+    `(${DIGITISH}{1,2})\\s*[:.;']?\\s*(${DIGITISH}{2})\\s*[-–—~=_>]+\\s*(${DIGITISH}{1,2})\\s*[:.;']?\\s*(${DIGITISH}{2})\\.?\\s*$`,
+  );
   const m = cleaned.match(re);
   if (!m) return null;
-  const h1 = +m[1], m1 = +m[2], h2 = +m[3], m2 = +m[4];
+  const h1 = +digitsOnly(m[1]), m1 = +digitsOnly(m[2]), h2 = +digitsOnly(m[3]), m2 = +digitsOnly(m[4]);
   if (!validTime(h1, m1) || !validTime(h2, m2)) return null;
   return {
     start: pad2(h1) + ':' + pad2(m1),
@@ -157,6 +167,8 @@ export interface OcrLine {
   yMin: number;
   yMax: number;
   x0: number;
+  /** Lowest word confidence (0-100) on the line. */
+  conf: number;
 }
 
 export function toLines(words: OcrWord[], tolerance = 6): OcrLine[] {
@@ -180,6 +192,7 @@ export function toLines(words: OcrWord[], tolerance = 6): OcrLine[] {
       yMin: Math.min(...ws.map((w) => w.y0)),
       yMax: Math.max(...ws.map((w) => w.y1)),
       x0: Math.min(...ws.map((w) => w.x0)),
+      conf: Math.min(...ws.map((w) => w.conf)),
     };
   });
 }
@@ -279,19 +292,31 @@ export function cleanLabel(raw: string): string {
   return s.replace(/^(.)/, (c) => c.toUpperCase());
 }
 
-/** Within a shift, activities run back-to-back; use that to repair sloppy OCR. */
-function repairChain(acts: Activity[]): void {
+/**
+ * Within a shift, activities run back-to-back; use that to repair sloppy OCR.
+ * The first activity has no predecessor to repair against — pass the shift's
+ * declared start time (from the left column) as its trusted anchor, if known.
+ */
+function repairChain(acts: Activity[], declaredStart?: string): void {
   for (let i = 0; i < acts.length; i++) {
     const a = acts[i];
     if (i > 0) {
       const prevEnd = acts[i - 1].end;
       if (a.start !== prevEnd) { a.start = prevEnd; a.repaired = true; }
+    } else if (declaredStart && a.start !== declaredStart) {
+      a.start = declaredStart; a.repaired = true;
     }
     if (minutesOf(a.end) <= minutesOf(a.start)) {
       const next = acts[i + 1];
       if (next && minutesOf(next.start) > minutesOf(a.start)) { a.end = next.start; a.repaired = true; }
     }
   }
+}
+
+/** Column 2 ("Activiteiten") starts at its header; fall back to a fixed ratio if not found. */
+export function computeSplitX(fullWords: OcrWord[], imageWidth: number): { splitX: number; found: boolean } {
+  const header = fullWords.find((w) => fuzzyIndex(w.text, ['activiteiten'], 3) === 0);
+  return { splitX: header ? header.x0 - 8 : Math.round(imageWidth * 0.594), found: !!header };
 }
 
 /* ------------------------------------------------------------------- main */
@@ -309,10 +334,8 @@ export function parseSchedule(input: ParseInput): ParseResult {
   const warnings: string[] = [];
 
   // --- column split: the "Activiteiten" header marks the start of column 2
-  let splitX = Math.round(imageWidth * 0.594);
-  const header = fullWords.find((w) => fuzzyIndex(w.text, ['activiteiten'], 3) === 0);
-  if (header) splitX = header.x0 - 8;
-  else warnings.push('Kolomkop "Activiteiten" niet gevonden; kolomgrens geschat.');
+  const { splitX, found: splitFound } = computeSplitX(fullWords, imageWidth);
+  if (!splitFound) warnings.push('Kolomkop "Activiteiten" niet gevonden; kolomgrens geschat.');
 
   // --- left column: dates, "vrij", declared shift times
   const leftSource = (input.leftWords && input.leftWords.length ? input.leftWords : fullWords).filter(
@@ -361,7 +384,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
     if (!tr) continue;
     const label = cleanLabel(tr.rest);
     if (!label && !tr.rest) continue;
-    activities.push({ label: label || 'Activiteit', start: tr.start, end: tr.end, y: line.y, repaired: false });
+    activities.push({ label: label || 'Activiteit', start: tr.start, end: tr.end, y: line.y, repaired: false, conf: line.conf });
   }
   activities.sort((a, b) => a.y - b.y);
 
@@ -402,7 +425,6 @@ export function parseSchedule(input: ParseInput): ParseResult {
   const workingDays = days.filter((d) => !d.off);
   chains.forEach((chain, ci) => {
     const chainWarnings: string[] = [];
-    repairChain(chain);
     const hits = labelFor(chain);
     let day: DayRow | undefined = hits[0];
     if (hits.length > 1) {
@@ -414,6 +436,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
       if (day) chainWarnings.push('Datum afgeleid uit de volgorde van de blokken.');
       else chainWarnings.push('Geen datum gevonden voor dit blok.');
     }
+    repairChain(chain, day?.declaredShift?.start);
     const start = chain[0].start;
     const end = chain[chain.length - 1].end;
     const endsNextDay = minutesOf(end) <= minutesOf(start);
@@ -425,6 +448,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
       }
     }
     if (chain.some((a) => a.repaired)) chainWarnings.push('Eén of meer activiteittijden zijn automatisch gecorrigeerd.');
+    if (chain.some((a) => a.conf < LOW_CONF_THRESHOLD)) chainWarnings.push('Eén of meer activiteiten hebben een lage OCR-betrouwbaarheid; controleer ze.');
     const officeActivities = [...new Set(chain.map((a) => a.label).filter((l) => OFFICE_ACTIVITIES.includes(l)))];
     shifts.push({
       id: `${day?.date ?? 'onbekend'}-${start}-${ci}`,
