@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // GitHub Pages serves the project at https://tribeldragon.github.io/rooster-import/
+  base: '/rooster-import/',
   server: { port: 5173, host: 'localhost' },
   build: {
     rollupOptions: {
