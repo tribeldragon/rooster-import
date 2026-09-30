@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseSchedule, addDays, weekdayOf, LOW_CONF_THRESHOLD, type ParseResult, type Shift } from './lib/parse';
+import { TimeInput24 } from './components/TimeInput24';
 import { fileToDataUrl, runOcr, type Progress } from './lib/ocr';
 import type { CalendarEntry, CalendarProvider, EventSettings, ProviderId, Token } from './lib/calendar';
 import { google } from './lib/google';
@@ -71,6 +72,7 @@ export default function App() {
       const parsed = parseSchedule({
         fullWords: ocr.fullWords,
         leftWords: ocr.leftWords,
+        timeWords: ocr.timeWords,
         imageWidth: ocr.width,
         fallbackYear: new Date().getFullYear(),
       });
@@ -190,6 +192,19 @@ export default function App() {
   }, []);
 
   const selected = useMemo(() => shifts.filter((s) => s.include && s.date), [shifts]);
+
+  const offSummary = useMemo(() => {
+    if (!result) return '';
+    const offDays = result.days.filter((d) => d.off);
+    if (!offDays.length) return '0 dagen overgeslagen';
+    const counts = new Map<string, number>();
+    offDays.forEach((d) => {
+      const label = d.offReason ?? 'Vrij';
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    });
+    const parts = [...counts.entries()].map(([label, n]) => `${n}x ${label}`);
+    return `${offDays.length} dag(en) overgeslagen (${parts.join(', ')})`;
+  }, [result]);
 
   const doImport = async () => {
     if (!provider) return;
@@ -314,9 +329,7 @@ export default function App() {
             <div className="spacer" />
             <div className="field">
               <span className="field-label-spacer" aria-hidden="true">&nbsp;</span>
-              <span className="muted">
-                {result.days.filter((d) => d.off).length} vrije dag(en) overgeslagen
-              </span>
+              <span className="muted">{offSummary}</span>
             </div>
           </div>
 
@@ -356,12 +369,12 @@ export default function App() {
                     </td>
                     <td className="muted" data-label="Dag">{s.date ? weekdayOf(s.date) : '—'}</td>
                     <td data-label="Van">
-                      <input type="time" value={s.start}
-                        onChange={(e) => patchShift(s.id, { start: e.target.value })} />
+                      <TimeInput24 label="Van" value={s.start}
+                        onChange={(v) => patchShift(s.id, { start: v })} />
                     </td>
                     <td data-label="Tot">
-                      <input type="time" value={s.end}
-                        onChange={(e) => patchShift(s.id, { end: e.target.value })} />
+                      <TimeInput24 label="Tot" value={s.end}
+                        onChange={(v) => patchShift(s.id, { end: v })} />
                       {s.endsNextDay && <span className="muted"> +1d</span>}
                     </td>
                     <td data-label="Titel">

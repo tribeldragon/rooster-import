@@ -11,6 +11,8 @@ export interface Progress { stage: string; progress: number }
 /** Upscaling is what makes small UI screenshots readable for Tesseract. */
 const TARGET_WIDTH = 2600;
 const MAX_SCALE = 4;
+/** The time cells start at roughly this fraction of the table width (labels end just before). */
+const TIME_COLUMN_RATIO = 0.68;
 
 export function scaleFor(width: number): number {
   return Math.max(1, Math.min(MAX_SCALE, Math.round((TARGET_WIDTH / width) * 2) / 2));
@@ -84,6 +86,8 @@ async function words(worker: AnyWorker, canvas: HTMLCanvasElement, scale: number
 export interface OcrResult {
   fullWords: OcrWord[];
   leftWords: OcrWord[];
+  /** Digits-only OCR of the right-hand time column. */
+  timeWords: OcrWord[];
   width: number;
   height: number;
 }
@@ -149,8 +153,16 @@ export async function runOcr(dataUrl: string, onProgress: (p: Progress) => void)
     const leftCanvas = preprocess(img, scale, { left: 0, top: 0, width: Math.max(40, splitX), height });
     const leftWords = await withTimeout(words(worker, leftCanvas, scale), 300_000, 'OCR duurde te lang.');
 
+    // Times are the one thing that must be exact, and general-purpose OCR drops colons and
+    // swaps 8/3 and 0/6. A digits-only pass over just the time column reads far more reliably.
+    onProgress({ stage: 'Tijden herkennen', progress: 0.85 });
+    const timeX = Math.round(width * TIME_COLUMN_RATIO);
+    await worker.setParameters({ tessedit_char_whitelist: '0123456789:- ', tessedit_pageseg_mode: '6' as never });
+    const timeCanvas = preprocess(img, scale, { left: timeX, top: 0, width: Math.max(40, width - timeX), height });
+    const timeWords = await withTimeout(words(worker, timeCanvas, scale, timeX, 0), 300_000, 'OCR duurde te lang.');
+
     onProgress({ stage: 'Klaar', progress: 1 });
-    return { fullWords, leftWords, width, height };
+    return { fullWords, leftWords, timeWords, width, height };
   } finally {
     await worker.terminate();
   }

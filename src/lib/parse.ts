@@ -31,6 +31,8 @@ export interface DayRow {
   dayName: string | null;
   date: string | null; // ISO yyyy-mm-dd
   off: boolean;
+  /** Why the day is marked off, e.g. "Vrij", "Verlof", "Ziek", "Medisch verlof". */
+  offReason: string | null;
   y: number;
   declaredShift: { start: string; end: string } | null;
 }
@@ -102,6 +104,38 @@ export function fuzzyIndex(token: string, list: string[], maxDist = 3): number {
   return best;
 }
 
+/**
+ * Words that mark a day as unworked, in priority order for the label shown
+ * when a line matches more than one (e.g. "medisch verlof" hits both
+ * 'medisch' and 'verlof' - the more specific reason wins).
+ */
+const ABSENCE_KEYWORDS: { word: string; label: string }[] = [
+  { word: 'medisch', label: 'Medisch verlof' },
+  { word: 'ziek', label: 'Ziek' },
+  { word: 'verlof', label: 'Verlof' },
+  { word: 'vakantie', label: 'Vakantie' },
+  { word: 'afwezig', label: 'Afwezig' },
+  { word: 'vrij', label: 'Vrij' },
+];
+const ABSENCE_WORDS = ABSENCE_KEYWORDS.map((k) => k.word);
+
+/** Fuzzy-match every word in a line against ABSENCE_KEYWORDS; returns the best label, or null. */
+export function detectAbsence(line: string): string | null {
+  // Split on whitespace only (not all non-letters) so an OCR digit standing in for a
+  // letter mid-word - e.g. "Z1ek" for "Ziek" - stays part of one token to fuzzy-match,
+  // instead of being split into two unmatchable fragments.
+  const tokens = line.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z]/g, '')).filter(Boolean);
+  // Scan every token and keep the highest-priority hit (lowest index in ABSENCE_KEYWORDS),
+  // so word order doesn't matter for combos like "medisch verlof" / "verlof medisch".
+  let bestPriority = Infinity;
+  let bestLabel: string | null = null;
+  for (const tok of tokens) {
+    const idx = fuzzyIndex(tok, ABSENCE_WORDS);
+    if (idx !== -1 && idx < bestPriority) { bestPriority = idx; bestLabel = ABSENCE_KEYWORDS[idx].label; }
+  }
+  return bestLabel;
+}
+
 const DIGIT_FIXES: Record<string, string> = {
   o: '0', O: '0', Q: '0', D: '0',
   l: '1', I: '1', i: '1', '|': '1', ']': '1', '[': '1',
@@ -138,14 +172,21 @@ function validTime(h: number, m: number): boolean {
   return h >= 0 && h <= 23 && m >= 0 && m <= 59;
 }
 
+/** An explicit date inside a time cell, e.g. "22-10-2026" in "20:30 - 22-10-2026 01:00". */
+const DATE_RE = /\b\d{1,2}\s*[-–/]\s*\d{1,2}\s*[-–/]\s*\d{4}\b/g;
+/** Same, but sitting before the start time: the activity started on an earlier day. */
+const CARRIED_OVER_RE = /\d{1,2}\s*[-–/]\s*\d{1,2}\s*[-–/]\s*\d{4}\s+\d{1,2}\s*[:.]?\s*\d{2}\s*[-–—~]/;
+
 /** Digits, or a lone OCR-confusable letter/symbol standing in for one. */
 const DIGITISH = '[0-9oOQDlIi|\\]\\[zZsSbGtTB&gq]';
 
 /** Pull the trailing "HH:MM - HH:MM" (colons optional, sloppy separators) out of a line. */
-export function parseTimeRange(text: string): { start: string; end: string; rest: string } | null {
+export function parseTimeRange(text: string, loose = false): { start: string; end: string; rest: string } | null {
   const cleaned = text.replace(/\s+/g, ' ').trim();
+  // loose: for digits-only OCR, where the dash between start and end is often dropped too
+  const sep = loose ? '*' : '+';
   const re = new RegExp(
-    `(${DIGITISH}{1,2})\\s*[:.;']?\\s*(${DIGITISH}{2})\\s*[-–—~=_>]+\\s*(${DIGITISH}{1,2})\\s*[:.;']?\\s*(${DIGITISH}{2})\\.?\\s*$`,
+    `(${DIGITISH}{1,2})\\s*[:.;']?\\s*(${DIGITISH}{2})\\s*[-–—~=_>]${sep}\\s*(${DIGITISH}{1,2})\\s*[:.;']?\\s*(${DIGITISH}{2})\\.?\\s*$`,
   );
   const m = cleaned.match(re);
   if (!m) return null;
@@ -156,6 +197,18 @@ export function parseTimeRange(text: string): { start: string; end: string; rest
     end: pad2(h2) + ':' + pad2(m2),
     rest: cleaned.slice(0, m.index).trim(),
   };
+}
+
+/**
+ * Last resort for a left-column shift line whose punctuation OCR'd away or picked up
+ * trailing icon glyphs ("1630-01003" = 16:30 - 01:00 + a clock icon): read the first 8 digits.
+ */
+function looseShiftTimes(text: string): { start: string; end: string } | null {
+  const d = text.replace(/\D/g, '');
+  if (d.length < 8) return null;
+  const [h1, m1, h2, m2] = [d.slice(0, 2), d.slice(2, 4), d.slice(4, 6), d.slice(6, 8)].map(Number);
+  if (!validTime(h1, m1) || !validTime(h2, m2)) return null;
+  return { start: pad2(h1) + ':' + pad2(m1), end: pad2(h2) + ':' + pad2(m2) };
 }
 
 /* ------------------------------------------------------------- line building */
@@ -324,6 +377,8 @@ export function computeSplitX(fullWords: OcrWord[], imageWidth: number): { split
 export interface ParseInput {
   fullWords: OcrWord[];
   leftWords?: OcrWord[];
+  /** Digits-only OCR of the time column; when present it is the source of activity times. */
+  timeWords?: OcrWord[];
   imageWidth: number;
   fallbackYear?: number;
 }
@@ -353,15 +408,16 @@ export function parseSchedule(input: ParseInput): ParseResult {
     if (looksLikeDate) {
       days.push({
         index: days.length, raw: line.text, dayName: raw!.dayName, date: null,
-        off: false, y: line.y, declaredShift: null,
+        off: false, offReason: null, y: line.y, declaredShift: null,
       });
       rawDates.push({ raw, index: days.length - 1 });
       continue;
     }
     const current = days[days.length - 1];
     if (!current) continue;
-    if (/vrij|verlof|vakantie|vrjj|vri/.test(lower.replace(/[^a-z]/g, ''))) { current.off = true; continue; }
-    const tr = parseTimeRange(line.text.replace(/[^\d\s:.\-–—~=]/g, ' '));
+    const absenceReason = detectAbsence(line.text);
+    if (absenceReason) { current.off = true; current.offReason = absenceReason; continue; }
+    const tr = parseTimeRange(line.text.replace(/[^\d\s:.\-–—~=]/g, ' '), true) ?? looseShiftTimes(line.text);
     if (tr) current.declaredShift = { start: tr.start, end: tr.end };
   }
 
@@ -378,9 +434,45 @@ export function parseSchedule(input: ParseInput): ParseResult {
 
   // --- right column: activities
   const rightLines = toLines(fullWords.filter((w) => (w.x0 + w.x1) / 2 >= splitX));
+
+  // A day's specific leave reason ("Verlof", "Ziek", "Medisch verlof", ...) often only
+  // OCRs legibly in the Activiteiten column, even when the left-column status text
+  // ("afwezig") is mangled beyond fuzzy-match range - so scan each day's row band for
+  // it and (re)mark the day as off from there, regardless of what the left column read.
+  days.forEach((d, i) => {
+    const bandStart = d.y - 30;
+    const bandEnd = (days[i + 1]?.y ?? Infinity) - 6;
+    for (const line of rightLines) {
+      if (line.y < bandStart || line.y > bandEnd) continue;
+      const reason = detectAbsence(line.text);
+      if (reason) { d.off = true; d.offReason = reason; break; }
+    }
+  });
+
   const activities: Activity[] = [];
-  for (const line of rightLines) {
-    const tr = parseTimeRange(line.text);
+  if (input.timeWords && input.timeWords.length) {
+    // Times come from the digits-only pass, labels from the general pass; pair them by row.
+    const labelLines = rightLines.filter((l) => /[A-Za-z]{4,}/.test(l.text));
+    for (const line of toLines(input.timeWords)) {
+      if (CARRIED_OVER_RE.test(line.text)) continue; // echo of an activity that began the day before
+      const tr = parseTimeRange(line.text.replace(DATE_RE, ' '), true);
+      if (!tr) continue;
+      const near = labelLines
+        .filter((l) => Math.abs(l.y - line.y) <= 16)
+        .sort((a, b) => Math.abs(a.y - line.y) - Math.abs(b.y - line.y))[0];
+      if (near && detectAbsence(near.text)) continue; // leave/absence row
+      const label = near ? cleanLabel(near.text.replace(/\d{1,2}\s*[-–/]\s*\d{1,2}\s*[-–/]\s*\d{4}.*$/, '')) : '';
+      activities.push({
+        label: label || 'Activiteit', start: tr.start, end: tr.end, y: line.y, repaired: false,
+        conf: Math.min(line.conf, near?.conf ?? line.conf),
+      });
+    }
+  } else for (const line of rightLines) {
+    if (detectAbsence(line.text)) continue; // leave/absence marker, not a real activity
+    // A date *before* the start ("21-10-2026 20:30 - 01:00") means this activity began on
+    // the previous day and is only echoed here - it belongs to that day's shift, not this one.
+    if (CARRIED_OVER_RE.test(line.text)) continue;
+    const tr = parseTimeRange(line.text.replace(DATE_RE, ' '));
     if (!tr) continue;
     const label = cleanLabel(tr.rest);
     if (!label && !tr.rest) continue;
@@ -423,6 +515,12 @@ export function parseSchedule(input: ParseInput): ParseResult {
 
   const shifts: Shift[] = [];
   const workingDays = days.filter((d) => !d.off);
+  // Days already claimed by a block that sits squarely inside their row band.
+  const claimed = new Set<DayRow>();
+  for (const chain of chains) {
+    const hits = labelFor(chain);
+    if (hits.length) claimed.add(hits[0]);
+  }
   chains.forEach((chain, ci) => {
     const chainWarnings: string[] = [];
     const hits = labelFor(chain);
@@ -432,14 +530,28 @@ export function parseSchedule(input: ParseInput): ParseResult {
       day = hits[0];
     }
     if (!day) {
-      day = workingDays[ci];
-      if (day) chainWarnings.push('Datum afgeleid uit de volgorde van de blokken.');
+      // No day row's band contains this block (e.g. its real day's own activities
+      // OCR'd so badly none survived, throwing off the band). Falling back to
+      // position-in-sequence among working days silently mis-assigns blocks
+      // whenever an earlier day drops out that way - picking the working day
+      // whose row sits vertically closest to the block is far more often right.
+      const yMid = (Math.min(...chain.map((a) => a.y)) + Math.max(...chain.map((a) => a.y))) / 2;
+      // Prefer days nobody else claimed, and among those the one whose declared
+      // (left column) start time matches this block; only then fall back to distance.
+      const free = workingDays.filter((d) => !claimed.has(d));
+      const pool = free.length ? free : workingDays;
+      const byStart = pool.filter((d) => d.declaredShift?.start === chain[0].start);
+      day = (byStart.length ? byStart : pool).reduce<DayRow | undefined>(
+        (best, d) => (!best || Math.abs(d.y - yMid) < Math.abs(best.y - yMid) ? d : best),
+        undefined,
+      );
+      if (day) claimed.add(day);
+      if (day) chainWarnings.push('Datum geschat op basis van de dichtstbijzijnde dag; controleer deze shift.');
       else chainWarnings.push('Geen datum gevonden voor dit blok.');
     }
     repairChain(chain, day?.declaredShift?.start);
     const start = chain[0].start;
     const end = chain[chain.length - 1].end;
-    const endsNextDay = minutesOf(end) <= minutesOf(start);
     if (day?.declaredShift) {
       if (day.declaredShift.start !== start || day.declaredShift.end !== end) {
         chainWarnings.push(
@@ -447,6 +559,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
         );
       }
     }
+    const endsNextDay = minutesOf(end) <= minutesOf(start);
     if (chain.some((a) => a.repaired)) chainWarnings.push('Eén of meer activiteittijden zijn automatisch gecorrigeerd.');
     if (chain.some((a) => a.conf < LOW_CONF_THRESHOLD)) chainWarnings.push('Eén of meer activiteiten hebben een lage OCR-betrouwbaarheid; controleer ze.');
     const officeActivities = [...new Set(chain.map((a) => a.label).filter((l) => OFFICE_ACTIVITIES.includes(l)))];
@@ -468,6 +581,25 @@ export function parseSchedule(input: ParseInput): ParseResult {
       `${chains.length} shiftblok(ken) gevonden voor ${workingDays.length} werkdag(en) — controleer de tabel hieronder.`,
     );
   }
+  const coveredDates = new Set(shifts.map((s) => s.date).filter((d): d is string => d !== null));
+  workingDays.forEach((d) => {
+    if (!d.date || coveredDates.has(d.date)) return;
+    if (d.declaredShift) {
+      // Activities didn't OCR, but the left column still tells us the shift itself.
+      const { start, end } = d.declaredShift;
+      shifts.push({
+        id: `${d.date}-${start}-d${d.index}`,
+        date: d.date, dayName: d.dayName,
+        start, end, endsNextDay: minutesOf(end) <= minutesOf(start),
+        activities: [],
+        warnings: ['Activiteiten niet herkend; shifttijd komt uit de linkerkolom.'],
+        include: true, title: 'Werk', officeActivities: [],
+      });
+    } else {
+      warnings.push(`Geen activiteiten herkend voor ${d.dayName ?? d.raw} (${d.date}) — voeg deze shift handmatig toe.`);
+    }
+  });
+  shifts.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || a.start.localeCompare(b.start));
   if (!shifts.length) warnings.push('Geen activiteiten herkend. Probeer een scherpere of grotere screenshot.');
 
   return { days, shifts, warnings, splitX };

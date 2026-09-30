@@ -143,10 +143,12 @@ input, select, button, textarea {
   border-radius: 6px;
   padding: 7px 10px;
 }
-input[type="time"], input[type="date"] {
+input[type="time"], input[type="date"], input.time-input {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+input.time-input { width: 6.5em; text-align: center; }
+input.time-input[aria-invalid="true"] { border-color: var(--danger, #c0392b); }
 input[type="checkbox"] { width: 16px; height: 16px; padding: 0; accent-color: var(--accent); }
 button {
   cursor: pointer;

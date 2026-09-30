@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseSchedule, parseTimeRange, shiftDescription, type OcrWord } from '../src/lib/parse.ts';
+import { parseSchedule, parseTimeRange, shiftDescription, detectAbsence, type OcrWord } from '../src/lib/parse.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(fs.readFileSync(path.join(here, 'fixture.json'), 'utf8')) as {
@@ -93,6 +93,25 @@ check(
 );
 check('gesplitste dag: titel bevat Coaching', splitDay?.title, 'Werk | Coaching | Kantoor');
 
+/*
+ * Regression: when a block's y-band lands inside no day row at all (e.g. the
+ * day it truly belongs to had all its own activities fail to OCR, throwing
+ * off spacing), it used to fall back to position-in-sequence among working
+ * days - silently mis-assigning it to whichever day happened to be first.
+ * Picking the nearest day by vertical distance instead gets this right.
+ */
+const nearestDaySynthetic = parseSchedule({
+  fullWords: [
+    { text: 'maandag 5 januari 2026', conf: 90, x0: 10, x1: 160, y0: 10, y1: 16 },
+    { text: 'dinsdag 6 januari 2026', conf: 90, x0: 10, x1: 160, y0: 200, y1: 206 },
+    { text: 'Voice 09:00 - 10:00', conf: 90, x0: 650, x1: 900, y0: 140, y1: 146 },
+  ],
+  imageWidth: 1000,
+  fallbackYear: 2026,
+});
+check('dichtstbijzijnde dag: precies één shift', nearestDaySynthetic.shifts.length, 1);
+check('dichtstbijzijnde dag: shift toegewezen aan dinsdag, niet maandag', nearestDaySynthetic.shifts[0]?.dayName, 'dinsdag');
+
 /* Regression: OCR-confused letters standing in for digits inside a time range. */
 check(
   'digit-fix: letters die op cijfers lijken worden hersteld',
@@ -124,6 +143,31 @@ check(
   { start: '09:30', repaired: true },
 );
 check('eerste activiteit: shift-starttijd volgt de correctie', firstActivityShift?.start, '09:30');
+
+/* Regression: OCR-mangled absence labels must still be recognised. */
+check('afwezigheid: vrij', detectAbsence('Vrij'), 'Vrij');
+check('afwezigheid: vrij (OCR vri)', detectAbsence('Vri'), 'Vrij');
+check('afwezigheid: verlof', detectAbsence('Verlof'), 'Verlof');
+check('afwezigheid: verlof (OCR verlot)', detectAbsence('Verlot'), 'Verlof');
+check('afwezigheid: vakantie', detectAbsence('Vakantie'), 'Vakantie');
+check('afwezigheid: ziek', detectAbsence('Ziek'), 'Ziek');
+check('afwezigheid: ziek (OCR z1ek)', detectAbsence('Z1ek'), 'Ziek');
+check('afwezigheid: medisch verlof', detectAbsence('Medisch verlof'), 'Medisch verlof');
+check('afwezigheid: medisch verlof (OCR medlsch verlot)', detectAbsence('Medlsch Verlot'), 'Medisch verlof');
+check('afwezigheid: medisch verlof (omgekeerde woordvolgorde)', detectAbsence('Verlof Medisch'), 'Medisch verlof');
+check('afwezigheid: geen match op een tijdrange', detectAbsence('09:30 - 18:00'), null);
+check('afwezigheid: geen match op "Voice"', detectAbsence('Voice'), null);
+
+// Real tester screenshot (IMG-20260925-WA0003): noisy OCR, colons dropped, date-carrying
+// time cells, an echoed activity on an off day. Shift times must still come out exact.
+const wa = JSON.parse(fs.readFileSync(path.join(here, 'fixture-wa0003.json'), 'utf8'));
+const waResult = parseSchedule({ fullWords: wa.fullWords, leftWords: wa.leftWords, timeWords: wa.timeWords, imageWidth: wa.imageWidth, fallbackYear: 2026 });
+check(
+  'wa0003: shifts',
+  waResult.shifts.map((s) => `${s.date} ${s.start}-${s.end}${s.endsNextDay ? '+1' : ''}`),
+  ['2026-10-21 16:30-01:00+1', '2026-10-24 13:30-22:00', '2026-10-25 16:30-01:00+1'],
+);
+check('wa0003: woensdag heeft 7 activiteiten', waResult.shifts[0]?.activities.length, 7);
 
 console.log('\n--- omschrijving maandag ---\n' + shiftDescription(mon));
 console.log(`\n${failures ? `${failures} test(s) MISLUKT` : 'Alle tests geslaagd'}`);
