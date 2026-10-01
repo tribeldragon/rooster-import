@@ -297,14 +297,30 @@ export function weekdayOf(iso: string): string {
 export function reconcileDates(
   rows: { raw: RawDate | null; index: number }[],
   fallbackYear: number,
+  today?: Date,
 ): { anchor: string | null; warnings: string[] } {
   const votes = new Map<string, number>();
   const warnings: string[] = [];
+  const DAY = 86400000;
+  // Rows without a year: the first one takes the year nearest to `today` (or fallbackYear),
+  // later ones the year that keeps them next to the previous row, so a Dec 29 - Jan 4
+  // week doesn't end up with its January days a year early.
+  let expected: number | null = today ? Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) : null;
   for (const r of rows) {
     if (!r.raw || r.raw.day === null || r.raw.month === null) continue;
-    const year = r.raw.year ?? fallbackYear;
-    const iso = isoOf(year, r.raw.month, r.raw.day);
+    const { day, month } = r.raw;
+    let year = r.raw.year;
+    if (year === null) {
+      if (expected === null) year = fallbackYear;
+      else {
+        const target = expected;
+        year = [fallbackYear - 1, fallbackYear, fallbackYear + 1, new Date(target).getUTCFullYear()]
+          .reduce((best, y) => (Math.abs(Date.UTC(y, month - 1, day) - target) < Math.abs(Date.UTC(best, month - 1, day) - target) ? y : best));
+      }
+    }
+    const iso = isoOf(year, month, day);
     if (isNaN(Date.parse(iso))) continue;
+    expected = Date.parse(iso) + DAY; // the next row is the next calendar day
     const anchor = addDays(iso, -r.index);
     votes.set(anchor, (votes.get(anchor) ?? 0) + 1);
     // weekday cross-check
@@ -333,7 +349,7 @@ export function cleanLabel(raw: string): string {
   let s = raw
     .replace(/[_\s]*\d{4,}\.?$/, '')       // trailing id: Voice_3098328
     .replace(/[_\s]*\d{4,}[^A-Za-z]*$/, '')
-    .replace(/[|\[\]{}<>*·•]/g, ' ')
+    .replace(/[|[\]{}<>*·•]/g, ' ')
     .trim();
   // strip leading colour-swatch noise ("B", "Hl", "Mj", "ll", "I")
   const toks = s.split(/\s+/).filter(Boolean);
@@ -366,10 +382,20 @@ function repairChain(acts: Activity[], declaredStart?: string): void {
   }
 }
 
+/**
+ * Pixel tolerances below (line merging, row bands, label matching) were tuned on a screenshot
+ * this wide. Other widths scale them proportionally; clamped so a tiny or huge image can't
+ * collapse or blow up the bands.
+ */
+export const REFERENCE_WIDTH = 850;
+export function pixelScale(imageWidth: number): number {
+  return Math.min(3, Math.max(0.5, imageWidth / REFERENCE_WIDTH));
+}
+
 /** Column 2 ("Activiteiten") starts at its header; fall back to a fixed ratio if not found. */
 export function computeSplitX(fullWords: OcrWord[], imageWidth: number): { splitX: number; found: boolean } {
   const header = fullWords.find((w) => fuzzyIndex(w.text, ['activiteiten'], 3) === 0);
-  return { splitX: header ? header.x0 - 8 : Math.round(imageWidth * 0.594), found: !!header };
+  return { splitX: header ? header.x0 - 8 * pixelScale(imageWidth) : Math.round(imageWidth * 0.594), found: !!header };
 }
 
 /* ------------------------------------------------------------------- main */
@@ -381,10 +407,21 @@ export interface ParseInput {
   timeWords?: OcrWord[];
   imageWidth: number;
   fallbackYear?: number;
+  /** Used to pick the year of yearless dates (default: no reference, fallbackYear is used). */
+  today?: Date;
+  /** Activities that make a shift an office shift; defaults to OFFICE_ACTIVITIES. */
+  officeActivities?: string[];
+}
+
+/** Which of `officeList` occur in the activities, in order of first occurrence (case-insensitive). */
+export function officeIn(activities: Activity[], officeList: string[]): string[] {
+  const wanted = officeList.map((o) => o.trim().toLowerCase()).filter(Boolean);
+  return [...new Set(activities.map((a) => a.label).filter((l) => wanted.includes(l.toLowerCase())))];
 }
 
 export function parseSchedule(input: ParseInput): ParseResult {
   const { fullWords, imageWidth } = input;
+  const k = pixelScale(imageWidth);
   const fallbackYear = input.fallbackYear ?? new Date().getFullYear();
   const warnings: string[] = [];
 
@@ -396,7 +433,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
   const leftSource = (input.leftWords && input.leftWords.length ? input.leftWords : fullWords).filter(
     (w) => (w.x0 + w.x1) / 2 < splitX,
   );
-  const leftLines = toLines(leftSource);
+  const leftLines = toLines(leftSource, 6 * k);
 
   const days: DayRow[] = [];
   const rawDates: { raw: RawDate | null; index: number }[] = [];
@@ -421,7 +458,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
     if (tr) current.declaredShift = { start: tr.start, end: tr.end };
   }
 
-  const { anchor, warnings: dateWarnings } = reconcileDates(rawDates, fallbackYear);
+  const { anchor, warnings: dateWarnings } = reconcileDates(rawDates, fallbackYear, input.today);
   warnings.push(...dateWarnings);
   if (anchor) {
     days.forEach((d) => {
@@ -433,15 +470,15 @@ export function parseSchedule(input: ParseInput): ParseResult {
   }
 
   // --- right column: activities
-  const rightLines = toLines(fullWords.filter((w) => (w.x0 + w.x1) / 2 >= splitX));
+  const rightLines = toLines(fullWords.filter((w) => (w.x0 + w.x1) / 2 >= splitX), 6 * k);
 
   // A day's specific leave reason ("Verlof", "Ziek", "Medisch verlof", ...) often only
   // OCRs legibly in the Activiteiten column, even when the left-column status text
   // ("afwezig") is mangled beyond fuzzy-match range - so scan each day's row band for
   // it and (re)mark the day as off from there, regardless of what the left column read.
   days.forEach((d, i) => {
-    const bandStart = d.y - 30;
-    const bandEnd = (days[i + 1]?.y ?? Infinity) - 6;
+    const bandStart = d.y - 30 * k;
+    const bandEnd = (days[i + 1]?.y ?? Infinity) - 6 * k;
     for (const line of rightLines) {
       if (line.y < bandStart || line.y > bandEnd) continue;
       const reason = detectAbsence(line.text);
@@ -453,12 +490,12 @@ export function parseSchedule(input: ParseInput): ParseResult {
   if (input.timeWords && input.timeWords.length) {
     // Times come from the digits-only pass, labels from the general pass; pair them by row.
     const labelLines = rightLines.filter((l) => /[A-Za-z]{4,}/.test(l.text));
-    for (const line of toLines(input.timeWords)) {
+    for (const line of toLines(input.timeWords, 6 * k)) {
       if (CARRIED_OVER_RE.test(line.text)) continue; // echo of an activity that began the day before
       const tr = parseTimeRange(line.text.replace(DATE_RE, ' '), true);
       if (!tr) continue;
       const near = labelLines
-        .filter((l) => Math.abs(l.y - line.y) <= 16)
+        .filter((l) => Math.abs(l.y - line.y) <= 16 * k)
         .sort((a, b) => Math.abs(a.y - line.y) - Math.abs(b.y - line.y))[0];
       if (near && detectAbsence(near.text)) continue; // leave/absence row
       const label = near ? cleanLabel(near.text.replace(/\d{1,2}\s*[-–/]\s*\d{1,2}\s*[-–/]\s*\d{4}.*$/, '')) : '';
@@ -490,10 +527,10 @@ export function parseSchedule(input: ParseInput): ParseResult {
   }
 
   // --- attach each chain to the day label that sits inside its vertical band
-  const pad = 6;
+  const pad = 6 * k;
   const labelFor = (chain: Activity[]): DayRow[] => {
-    const yMin = Math.min(...chain.map((a) => a.y)) - 14;
-    const yMax = Math.max(...chain.map((a) => a.y)) + 14;
+    const yMin = Math.min(...chain.map((a) => a.y)) - 14 * k;
+    const yMax = Math.max(...chain.map((a) => a.y)) + 14 * k;
     return days.filter((d) => d.y >= yMin - pad && d.y <= yMax + pad);
   };
 
@@ -561,8 +598,8 @@ export function parseSchedule(input: ParseInput): ParseResult {
     }
     const endsNextDay = minutesOf(end) <= minutesOf(start);
     if (chain.some((a) => a.repaired)) chainWarnings.push('Eén of meer activiteittijden zijn automatisch gecorrigeerd.');
-    if (chain.some((a) => a.conf < LOW_CONF_THRESHOLD)) chainWarnings.push('Eén of meer activiteiten hebben een lage OCR-betrouwbaarheid; controleer ze.');
-    const officeActivities = [...new Set(chain.map((a) => a.label).filter((l) => OFFICE_ACTIVITIES.includes(l)))];
+    if (chain.some((a) => a.conf < LOW_CONF_THRESHOLD)) chainWarnings.push('Eén of meer activiteiten zijn onduidelijk gelezen; controleer ze.');
+    const officeActivities = officeIn(chain, input.officeActivities ?? OFFICE_ACTIVITIES);
     shifts.push({
       id: `${day?.date ?? 'onbekend'}-${start}-${ci}`,
       date: day?.date ?? null,
@@ -571,7 +608,7 @@ export function parseSchedule(input: ParseInput): ParseResult {
       activities: chain,
       warnings: chainWarnings,
       include: true,
-      title: officeActivities.length ? `Werk | ${officeActivities.join(', ')} | Kantoor` : 'Werk',
+      title: shiftTitle('Werk', officeActivities),
       officeActivities,
     });
   });
@@ -607,6 +644,11 @@ export function parseSchedule(input: ParseInput): ParseResult {
 
 /* --------------------------------------------------------- event rendering */
 
+/** Event title: the base title, plus the office activities when the shift had any. */
+export function shiftTitle(base: string, officeActivities: string[]): string {
+  return officeActivities.length ? `${base} | ${officeActivities.join(', ')} | Kantoor` : base;
+}
+
 export function shiftDescription(shift: Shift): string {
   const lines = shift.activities.map((a) => `${a.start} - ${a.end}  ${a.label}${a.repaired ? ' (gecorrigeerd)' : ''}`);
   const totals = new Map<string, number>();
@@ -619,12 +661,13 @@ export function shiftDescription(shift: Shift): string {
     .sort((a, b) => b[1] - a[1])
     .map(([label, min]) => `${label}: ${Math.floor(min / 60)}u${pad2(min % 60)}`)
     .join(' · ');
-  return [...lines, '', summary, '', 'Geïmporteerd uit rooster-screenshot.'].join('\n');
+  return [...lines, '', summary, '', 'Geïmporteerd met Rooster Import.'].join('\n');
 }
 
-/** Deterministic per-shift event id so re-importing updates instead of duplicating. */
+/**
+ * Deterministic per-shift event id so re-importing updates instead of duplicating.
+ * Date only (one shift per day), so a corrected start time updates the event.
+ */
 export function eventIdFor(shift: Shift): string {
-  const d = (shift.date ?? '').replace(/-/g, '');
-  const t = shift.start.replace(':', '');
-  return `rooster${d}t${t}`;
+  return `rooster${(shift.date ?? '').replace(/-/g, '')}`;
 }

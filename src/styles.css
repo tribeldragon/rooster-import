@@ -1,40 +1,50 @@
 :root {
-  --bg: #e3e1ec;
-  --panel: #fff8e7;
-  --line: #e3d2a0;
-  --text: #241f3d;
-  --muted: #746e8c;
-  --accent: #c6342e;
-  --accent-soft: #f7dad6;
-  --on-accent: #fff8e7;
-  --warn: #96650a;
-  --warn-soft: #f5e6c4;
-  --ok: #1b8f78;
-  --ok-soft: #d9f0ea;
-  --err: #c6342e;
-  --err-soft: #f7dad6;
-  --radius: 6px;
-  --font-display: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Palette follows the Ziggo orange / charcoal / white look so the tool feels at home. */
+  --brand: #ff6a13;
+  --radius: 4px;
+  --shadow: 0 1.6px 3.6px rgba(0, 0, 0, .13), 0 0.3px 0.9px rgba(0, 0, 0, .11);
+  /* Fluent look: Segoe UI where available (Windows), the platform UI font elsewhere. */
+  --font-display: 'Segoe UI', 'Segoe UI Variable', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif;
+  --font-mono: Consolas, 'Cascadia Mono', ui-monospace, Menlo, monospace;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15132a;
-    --panel: #211d3b;
-    --line: #3c3560;
-    --text: #f1eefa;
-    --muted: #a79fc7;
-    --accent: #ff6b5b;
-    --accent-soft: #40201d;
-    --on-accent: #241531;
-    --warn: #e8b34c;
-    --warn-soft: #3a2d12;
-    --ok: #33d6b8;
-    --ok-soft: #103330;
-    --err: #ff6b5b;
-    --err-soft: #40201d;
-  }
+/* Dark is the default; light applies only when the user picked it (data-theme on <html>). */
+:root, :root[data-theme="dark"] {
+  --bg: #1a1a1a;
+  --panel: #262626;
+  --line: #444444;
+  --text: #f2f2f2;
+  --muted: #b3b3b3;
+  --accent: #ff8a3d;
+  --accent-soft: #3d2a1a;
+  --on-accent: #1a1a1a;
+  --warn: #f0b84a;
+  --warn-soft: #3a2d12;
+  --ok: #4cd694;
+  --ok-soft: #12342a;
+  --err: #ff6b6b;
+  --err-soft: #3d2020;
+  --shadow: 0 1.6px 3.6px rgba(0, 0, 0, .5), 0 0.3px 0.9px rgba(0, 0, 0, .4);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f2f2f2;
+  --panel: #ffffff;
+  --line: #d6d6d6;
+  --text: #262626;
+  --muted: #666666;
+  --accent: #c24d00; /* darker than the brand orange so white text on it stays readable */
+  --accent-soft: #ffeadb;
+  --on-accent: #ffffff;
+  --warn: #8a5a00;
+  --warn-soft: #fff1d6;
+  --ok: #0b7a4b;
+  --ok-soft: #dff3e8;
+  --err: #b30000;
+  --err-soft: #fde8e8;
+  --shadow: 0 1.6px 3.6px rgba(0, 0, 0, .13), 0 0.3px 0.9px rgba(0, 0, 0, .11);
 }
 
 * { box-sizing: border-box; }
@@ -45,7 +55,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 var(--font-display);
+  font: 14px/1.43 var(--font-display);
   overflow-x: hidden;
   position: relative;
 }
@@ -56,24 +66,30 @@ body {
   .app { padding: 20px 12px 60px; }
 }
 
+/* App bar: flat orange band with charcoal text (readable on the bright orange). */
+header.top {
+  background: var(--brand);
+  color: #262626;
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  box-shadow: var(--shadow);
+}
 header.top h1 {
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: -.02em;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
   margin: 0;
 }
 header.top p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-  font-family: var(--font-mono);
+  margin: 4px 0 0;
+  color: #262626;
+  font-size: 14px;
 }
 
-/* Echoes the dashed vocabulary used on the drop zone and table rows below:
-   the header tears off from the rest of the ticket. */
+/* Thin divider under the app bar. */
 .tear {
   border: none;
-  border-top: 2px dashed var(--line);
+  border-top: 1px solid var(--line);
   margin: 18px 0 22px;
 }
 
@@ -81,49 +97,28 @@ header.top p {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 20px;
   margin-bottom: 16px;
+  box-shadow: var(--shadow);
 }
-.panel > h2 { font-size: 16px; font-weight: 700; margin: 0 0 12px; letter-spacing: -.005em; }
+.panel > h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
 
-/* Drop zone reads as a ticket slot: dashed edge, punched side notches. */
+/* Drop zone: a dashed target is the Fluent convention for "drop files here". */
 .drop {
-  position: relative;
-  border: 2px dashed var(--line);
-  border-radius: 14px;
-  padding: 36px 16px;
+  border: 1px dashed var(--muted);
+  border-radius: var(--radius);
+  padding: 32px 16px;
   text-align: center;
   color: var(--muted);
   cursor: pointer;
-  transition: transform .18s ease, border-color .15s, background .15s;
+  transition: border-color .15s, background .15s;
 }
-.drop::before, .drop::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--bg);
-  border: 2px dashed var(--line);
-  transform: translateY(-50%);
-}
-.drop::before { left: -11px; }
-.drop::after { right: -11px; }
 .drop:hover, .drop.over {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text);
 }
-.drop.over { transform: perspective(600px) rotateX(3deg) translateY(-2px); }
-.drop:hover::before, .drop:hover::after,
-.drop.over::before, .drop.over::after { border-color: var(--accent); }
-.drop strong { color: var(--text); display: block; margin-bottom: 4px; font-weight: 700; }
-
-@media (prefers-reduced-motion: reduce) {
-  .drop { transition: border-color .15s, background .15s; }
-  .drop.over { transform: none; }
-}
+.drop strong { color: var(--text); display: block; margin-bottom: 4px; font-weight: 600; }
 
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
 .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 160px; min-width: 0; }
@@ -140,11 +135,11 @@ input, select, button, textarea {
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 10px;
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  min-height: 32px;
 }
 input[type="time"], input[type="date"], input.time-input {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 input.time-input { width: 6.5em; text-align: center; }
@@ -154,73 +149,57 @@ button {
   cursor: pointer;
   background: var(--accent);
   border: 1px solid transparent;
-  border-radius: 8px 8px 8px 2px;
+  border-radius: var(--radius);
   color: var(--on-accent);
-  font-weight: 700;
+  font-weight: 600;
   font-family: var(--font-display);
-  box-shadow: 3px 3px 0 var(--text);
-  transition: transform .12s ease, box-shadow .12s ease;
+  padding: 5px 16px;
+  box-shadow: none;
+  transition: background .1s;
 }
-button:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--text); }
-button:active:not(:disabled) { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--text); }
+button:hover:not(:disabled) { filter: brightness(.92); }
+button:active:not(:disabled) { filter: brightness(.85); }
 button.secondary {
   background: var(--panel);
   color: var(--text);
-  border-color: var(--line);
-  border-radius: 8px;
+  border-color: var(--muted);
   font-weight: 600;
-  box-shadow: none;
 }
-button.secondary:hover:not(:disabled) { transform: none; box-shadow: none; border-color: var(--accent); }
-button:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+button.secondary:hover:not(:disabled) { filter: none; background: var(--accent-soft); }
+button:disabled { opacity: .5; cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
   button { transition: none; }
-  button:hover:not(:disabled), button:active:not(:disabled) { transform: none; }
 }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin-top: 10px; }
+.bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 10px; }
 .bar > div { height: 100%; background: var(--accent); transition: width .2s; }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 8px 8px; vertical-align: middle; }
-thead th { border-bottom: 2px solid var(--line); font-size: 12px; color: var(--muted); font-weight: 600; }
-tbody td { border-bottom: 1px dashed var(--line); }
+thead th { border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); font-weight: 600; }
+tbody td { border-bottom: 1px solid var(--line); }
 tr.off td { color: var(--muted); }
 .title-input { width: 110px; max-width: 100%; }
 
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.mono { font-variant-numeric: tabular-nums; }
 
-/* Status reads as an ink stamp rather than a flat pill: hard offset shadow,
-   a slight rotation, like someone pressed it down on the row. */
+/* Status badge: small flat tag. */
 .status {
-  font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   display: inline-block;
-  border: 1.5px solid currentColor;
-  transform: rotate(-2deg);
-  animation: stamp .18s ease-out;
 }
 .status.ok { background: var(--ok-soft); color: var(--ok); }
 .status.err { background: var(--err-soft); color: var(--err); }
 
-@keyframes stamp {
-  from { transform: rotate(-2deg) scale(1.5); opacity: 0; }
-  to { transform: rotate(-2deg) scale(1); opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .status { animation: none; }
-}
-
 /* Below this width the table itself doesn't fit comfortably even scrolled -
-   render each shift as a stacked card instead of a wide row (phones). A
-   clipped corner marks it as a ticket stub rather than a generic card. */
+   render each shift as a stacked card instead of a wide row (phones). */
 @media (max-width: 640px) {
   .table-wrap { overflow-x: visible; }
   table, tbody, tr, td { display: block; width: 100%; }
@@ -234,7 +213,8 @@ tr.off td { color: var(--muted); }
     gap: 4px 10px;
     background: var(--panel);
     border: 1px solid var(--line);
-    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
     padding: 10px 40px 10px 12px;
     margin-bottom: 10px;
   }
@@ -270,8 +250,8 @@ tr.off td { color: var(--muted); }
   font-size: 13px;
   padding: 8px 10px 8px 12px;
   margin: 6px 0;
-  border-left: 3px solid currentColor;
-  border-radius: 0 6px 6px 0;
+  border-left: 4px solid currentColor;
+  border-radius: var(--radius);
 }
 .note.warn { background: var(--warn-soft); color: var(--warn); }
 .note.ok { background: var(--ok-soft); color: var(--ok); }
@@ -280,22 +260,26 @@ tr.off td { color: var(--muted); }
 .acts { font-size: 13px; color: var(--muted); margin: 4px 0 0; padding-left: 18px; }
 details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 
-.preview { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; margin-top: 10px; }
+.preview { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); margin-top: 10px; }
 .muted { color: var(--muted); font-size: 13px; }
 .legend { margin: 0 0 10px; }
 .legend p { margin: 2px 0; }
 .grow { flex: 1 1 200px; }
 .spacer { flex: 1; }
-code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; font-size: 12px; font-family: var(--font-mono); }
+code { background: var(--accent-soft); padding: 1px 5px; border-radius: 2px; font-size: 13px; font-family: var(--font-mono); }
 
 .iconbtn {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--muted);
   font-weight: 400;
   line-height: 1;
   padding: 4px 8px;
   box-shadow: none;
 }
-.iconbtn:hover { color: var(--err); border-color: var(--line); transform: none; box-shadow: none; }
+.iconbtn:hover:not(:disabled) { color: var(--err); border-color: var(--line); filter: none; }
+
+.paste-text { width: 100%; box-sizing: border-box; margin: 8px 0; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel, #fff); color: inherit; }
+
+.theme-toggle { display: flex; justify-content: center; margin-top: 8px; }

@@ -101,13 +101,15 @@ async function assetPaths(): Promise<{ workerPath?: string; corePath?: string; l
       return res.ok || res.status === 206;
     } catch { return false; }
   };
+  // Served under the Vite base: "/" in dev, "/rooster-import/" on GitHub Pages.
+  const base = import.meta.env.BASE_URL;
   const [worker, lang] = await Promise.all([
-    has('/tesseract/worker.min.js'),
-    has('/tessdata/nld.traineddata.gz'),
+    has(`${base}tesseract/worker.min.js`),
+    has(`${base}tessdata/nld.traineddata.gz`),
   ]);
   return {
-    ...(worker ? { workerPath: '/tesseract/worker.min.js', corePath: '/tesseract/' } : {}),
-    ...(lang ? { langPath: '/tessdata' } : {}),
+    ...(worker ? { workerPath: `${base}tesseract/worker.min.js`, corePath: `${base}tesseract/` } : {}),
+    ...(lang ? { langPath: `${base}tessdata` } : {}),
   };
 }
 
@@ -122,27 +124,59 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
+/** One worker is kept for a while so a second screenshot skips the (slow) engine + language load. */
+const IDLE_MS = 120_000;
+let workerPromise: Promise<AnyWorker> | null = null;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+/** The logger is bound when the worker is created, so it forwards to whichever run is active. */
+let report: (p: Progress) => void = () => {};
+
+function getWorker(): Promise<AnyWorker> {
+  clearTimeout(idleTimer);
+  workerPromise ??= (async () => {
+    const paths = await assetPaths();
+    return withTimeout(
+      createWorker(['nld', 'eng'], 1, {
+        ...paths,
+        logger: (m: { status: string; progress: number }) => {
+          if (m.status === 'recognizing text') report({ stage: 'Tekst herkennen', progress: 0.1 + m.progress * 0.55 });
+          else if (m.status.includes('loading') || m.status.includes('initializ')) report({ stage: 'Taalbestanden laden', progress: 0.02 });
+        },
+      }),
+      180_000,
+      'De OCR-motor kon niet worden geladen. Draai `npm run prepare-assets` voor lokale bestanden, of controleer je internetverbinding.',
+    );
+  })();
+  // a failed load must not be cached
+  workerPromise.catch(() => { workerPromise = null; });
+  return workerPromise;
+}
+
+function releaseWorker(discard: boolean): void {
+  const drop = () => {
+    const p = workerPromise;
+    workerPromise = null;
+    void p?.then((w) => w.terminate()).catch(() => {});
+  };
+  if (discard) { drop(); return; }
+  idleTimer = setTimeout(drop, IDLE_MS);
+}
+
 export async function runOcr(dataUrl: string, onProgress: (p: Progress) => void): Promise<OcrResult> {
   const img = await loadImage(dataUrl);
   const width = img.naturalWidth;
   const height = img.naturalHeight;
   const scale = scaleFor(width);
 
+  report = onProgress;
   onProgress({ stage: 'Taalbestanden laden', progress: 0.02 });
-  const paths = await assetPaths();
-  const worker = await withTimeout(
-    createWorker(['nld', 'eng'], 1, {
-      ...paths,
-      logger: (m: { status: string; progress: number }) => {
-        if (m.status === 'recognizing text') onProgress({ stage: 'Tekst herkennen', progress: 0.1 + m.progress * 0.55 });
-        else if (m.status.includes('loading') || m.status.includes('initializ')) onProgress({ stage: 'Taalbestanden laden', progress: 0.02 });
-      },
-    }),
-    180_000,
-    'De OCR-motor kon niet worden geladen. Draai `npm run prepare-assets` voor lokale bestanden, of controleer je internetverbinding.',
-  );
+  const worker = await getWorker();
 
+  let failed = false;
   try {
+    // the time pass below narrows the character set; undo that for a reused worker
+    await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '3' as never });
+
     onProgress({ stage: 'Afbeelding voorbereiden', progress: 0.06 });
     const fullCanvas = preprocess(img, scale);
     const fullWords = await withTimeout(words(worker, fullCanvas, scale), 300_000, 'OCR duurde te lang.');
@@ -163,7 +197,10 @@ export async function runOcr(dataUrl: string, onProgress: (p: Progress) => void)
 
     onProgress({ stage: 'Klaar', progress: 1 });
     return { fullWords, leftWords, timeWords, width, height };
+  } catch (e) {
+    failed = true; // a timed-out recognise may still be running inside the worker: start fresh next time
+    throw e;
   } finally {
-    await worker.terminate();
+    releaseWorker(failed);
   }
 }

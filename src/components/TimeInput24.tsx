@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { pad2 } from '../lib/parse';
 
 /** Accepts "9:30", "0930", "09.30", "09:30"; returns "HH:MM" or null. */
 export function normalizeTime(raw: string): string | null {
@@ -6,7 +7,7 @@ export function normalizeTime(raw: string): string | null {
   if (!m) return null;
   const h = +m[1], min = +m[2];
   if (h > 23 || min > 59) return null;
-  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  return `${pad2(h)}:${pad2(min)}`;
 }
 
 /**
@@ -16,7 +17,9 @@ export function normalizeTime(raw: string): string | null {
  */
 export function TimeInput24({ value, onChange, label }: { value: string; onChange: (v: string) => void; label?: string }) {
   const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  // follow the value when it changes from outside (adjusting state during render, not in an effect)
+  const [seen, setSeen] = useState(value);
+  if (seen !== value) { setSeen(value); setDraft(value); }
   const valid = normalizeTime(draft) !== null;
 
   const commit = () => {

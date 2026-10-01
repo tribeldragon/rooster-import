@@ -2,12 +2,13 @@
  * Regression test for the parser, run against real Tesseract output recorded
  * from samples/week-2026-09-07.png (fixture.json).
  *
- *   npm run test:parser
+ *   npm test
  */
+import { expect, test } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseSchedule, parseTimeRange, shiftDescription, detectAbsence, type OcrWord } from '../src/lib/parse.ts';
+import { parseSchedule, reconcileDates, parseTimeRange, detectAbsence, type OcrWord } from '../src/lib/parse';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(fs.readFileSync(path.join(here, 'fixture.json'), 'utf8')) as {
@@ -39,12 +40,8 @@ const expectedShifts = [
   { date: '2026-09-13', start: '13:30', end: '22:00', activities: 4 },
 ];
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown): void {
-  const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  if (!ok) failures++;
-  console.log(`${ok ? 'OK  ' : 'FAIL'} ${label}${ok ? '' : `\n     verwacht: ${JSON.stringify(expected)}\n     gekregen: ${JSON.stringify(actual)}`}`);
-}
+const check = (label: string, actual: unknown, expected: unknown) =>
+  test(label, () => expect(actual).toEqual(expected));
 
 check('aantal dagen', result.days.length, expectedDays.length);
 check(
@@ -169,6 +166,22 @@ check(
 );
 check('wa0003: woensdag heeft 7 activiteiten', waResult.shifts[0]?.activities.length, 7);
 
-console.log('\n--- omschrijving maandag ---\n' + shiftDescription(mon));
-console.log(`\n${failures ? `${failures} test(s) MISLUKT` : 'Alle tests geslaagd'}`);
-process.exit(failures ? 1 : 0);
+// Week over de jaarwisseling, datums zonder jaar (di 29 dec - ma 4 jan)
+const nye = [29, 30, 31, 1, 2, 3, 4].map((day, index) => ({
+  raw: { dayName: null, day, month: day > 20 ? 12 : 1, year: null }, index,
+}));
+check('jaarwisseling: begin in december (vandaag 30 dec 2026)', reconcileDates(nye, 2026, new Date(2026, 11, 30)).anchor, '2026-12-29');
+check('jaarwisseling: week bekeken in januari erna', reconcileDates(nye, 2027, new Date(2027, 0, 2)).anchor, '2026-12-29');
+check('jaarwisseling: zonder referentiedatum geldt fallbackYear', reconcileDates(nye.slice(0, 3), 2026).anchor, '2026-12-29');
+
+// Same screenshot at another resolution: all coordinates scale, the result must not change.
+for (const f of [0.7, 1.5, 2]) {
+  const sc = (ws: OcrWord[]) => ws.map((w) => ({ ...w, x0: w.x0 * f, x1: w.x1 * f, y0: w.y0 * f, y1: w.y1 * f }));
+  const scaled = parseSchedule({ fullWords: sc(fixture.full), leftWords: sc(fixture.left), imageWidth: fixture.width * f, fallbackYear: 2026 });
+  check(
+    `schaal x${f}: zelfde shifts`,
+    scaled.shifts.map((x) => ({ date: x.date, start: x.start, end: x.end, activities: x.activities.length })),
+    expectedShifts,
+  );
+}
+

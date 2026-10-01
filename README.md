@@ -3,6 +3,7 @@
 Upload een screenshot van je weekrooster, controleer wat eruit gelezen wordt, en zet de
 shifts in een Google Agenda of Outlook-agenda (Microsoft-account) naar keuze.
 
+- **Tekst plakken**: kopieer de hele roostertabel en plak hem met Ctrl+V (of in het tekstvak). Dat is exact en sneller dan OCR; code: `src/lib/parseText.ts`, test: `npm run test:text`.
 - **OCR in de browser** (Tesseract.js, Nederlands + Engels) — er gaat geen screenshot naar een server.
 - **Eén afspraak per shift**, met de activiteiten (Voice, Admin Klant, Lunch, Chat, Coaching, …)
   en een tijdsverdeling in de omschrijving.
@@ -51,7 +52,7 @@ De **client secret** van datzelfde scherm heb je niet nodig en hoort hier ook ni
 `VITE_*` staat komt in de browserbundel terecht. Een client ID is publiek bedoeld; Google beveiligt
 hem via de toegestane JavaScript-origin.
 
-Gebruikte scopes: `calendar.readonly` (lijst met agenda's ophalen) en `calendar.events`
+Gebruikte scopes: `calendar.calendarlist.readonly` (lijst met agenda's ophalen) en `calendar.events`
 (afspraken aanmaken/bijwerken). De token blijft in het geheugen van het tabblad; er wordt niets
 op een server opgeslagen.
 
@@ -114,14 +115,15 @@ bezoek stil een nieuwe token op (Google: `prompt: ''`, Microsoft: MSAL `acquireT
 tot je op **Uitloggen** klikt, dan wordt de token ingetrokken. Verloopt de token midden in een
 import, dan vraagt de app er eenmalig een nieuwe en gaat verder.
 
-## Tests
+## Tests en lint
 
 ```bash
-npm run test:parser
+npm test        # vitest
+npm run lint    # eslint
 ```
 
 Draait de parser op echte OCR-output van `samples/week-2026-09-07.png` (opgeslagen in
-`scripts/fixture.json`) en vergelijkt die met de shifts zoals ze in die screenshot staan.
+`tests/fixture.json`) en vergelijkt die met de shifts zoals ze in die screenshot staan.
 Nieuwe fixture nodig na een layoutwijziging? Zie de OCR-instellingen in `src/lib/ocr.ts`
 (grijswaarden, contrast 1.4/-40, schaal ~3×) en neem dezelfde voorbewerking over.
 
@@ -134,9 +136,13 @@ src/lib/calendar.ts gedeelde interface voor agenda-providers
 src/lib/google.ts   Google OAuth-token + Calendar API
 src/lib/microsoft.ts  Microsoft-login (MSAL) + Graph calendar API
 redirect.html       redirect-URI voor de Microsoft-login
-src/App.tsx         upload, reviewtabel, import
-scripts/            asset-prep en parsertest + OCR-fixture
-samples/            voorbeeldscreenshot waar de test op draait
+src/App.tsx         state + OCR/paste-flow
+src/components/     UploadPanel, ShiftTable, CalendarPanel
+src/hooks/          useCalendar (login, token, import)
+src/lib/ics.ts      .ics-export zonder login
+scripts/            asset-prep
+tests/              vitest-tests + OCR-fixtures
+samples/            eigen voorbeelden (staat in .gitignore, niet gecommit)
 ```
 
 ## Bekende beperkingen

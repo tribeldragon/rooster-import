@@ -1,6 +1,7 @@
 /**
  * Google Identity Services (token flow) + Calendar REST API, no backend.
  */
+import { apiFetch } from './http';
 import { eventIdFor, shiftDescription, type Shift } from './parse';
 import {
   shiftTimes,
@@ -11,7 +12,7 @@ const CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) 
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SCOPES = [
-  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
   'https://www.googleapis.com/auth/calendar.events',
 ].join(' ');
 
@@ -46,31 +47,19 @@ async function requestToken(clientId: string, opts: { silent?: boolean } = {}): 
         if (res.error) reject(new Error(res.error_description || res.error));
         else resolve({ value: res.access_token, expiresAt: Date.now() + (Number(res.expires_in) - 60) * 1000 });
       },
-      error_callback: (err: any) => reject(new Error(err?.message ?? 'Inloggen geannuleerd.')),
+      error_callback: (err: any) => reject(new Error(
+        err?.type === 'popup_closed' ? 'Het inlogvenster is gesloten. Probeer het opnieuw.'
+          : err?.type === 'popup_failed_to_open' ? 'Het inlogvenster kon niet worden geopend. Sta pop-ups toe voor deze site.'
+            : 'Inloggen geannuleerd.',
+      )),
     });
     client.requestAccessToken();
   });
 }
 
 
-async function api(token: string, path: string, init: RequestInit = {}): Promise<any> {
-  const res = await fetch(`https://www.googleapis.com/calendar/v3${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(init.headers ?? {}),
-    },
-  });
-  const text = await res.text();
-  const body = text ? JSON.parse(text) : {};
-  if (!res.ok) {
-    const err = new Error(body?.error?.message ?? `Google API fout (${res.status})`) as Error & { status: number };
-    err.status = res.status;
-    throw err;
-  }
-  return body;
-}
+const api = (token: string, path: string, init: RequestInit = {}) =>
+  apiFetch('https://www.googleapis.com/calendar/v3', 'Google API', token, path, init);
 
 async function listCalendars(token: string): Promise<CalendarEntry[]> {
   const data = await api(token, '/users/me/calendarList?minAccessRole=writer&maxResults=250');
@@ -91,8 +80,8 @@ function buildEvent(shift: Shift, settings: EventSettings) {
     end: { dateTime: end, timeZone: settings.timeZone },
     status: 'confirmed',
     transparency: 'opaque',
-    source: { title: 'Rooster Import', url: 'http://localhost:5173' },
-    extendedProperties: { private: { roosterImport: '1', roosterWeek: shift.date! } },
+    source: { title: 'Rooster Import', url: window.location.origin + import.meta.env.BASE_URL },
+    extendedProperties: { private: { roosterImport: '1', roosterDate: shift.date! } },
     reminders: settings.reminderMinutes === null
       ? { useDefault: true }
       : { useDefault: false, overrides: [{ method: 'popup', minutes: settings.reminderMinutes }] },

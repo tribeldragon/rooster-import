@@ -1,3 +1,4 @@
+import { expect, test } from 'vitest';
 /**
  * Regression test for deployment config: GitHub Pages serves the app from a
  * subpath (/rooster-import/) while dev runs at the root, and the Microsoft
@@ -5,17 +6,13 @@
  * this wrong is what broke Microsoft login on the GitHub Pages build (see
  * commit "Fix Microsoft redirect URI for the GitHub Pages subpath").
  *
- *   npm run test:config
+ *   npm test
  */
-import { buildRedirectUri } from '../src/lib/redirectUri.ts';
-import { resolveBase } from '../src/lib/base.ts';
+import { buildRedirectUri } from '../src/lib/redirectUri';
+import { resolveBase } from '../src/lib/base';
 
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown): void {
-  const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  if (!ok) failures++;
-  console.log(`${ok ? 'OK  ' : 'FAIL'} ${label}${ok ? '' : `\n     verwacht: ${JSON.stringify(expected)}\n     gekregen: ${JSON.stringify(actual)}`}`);
-}
+const check = (label: string, actual: unknown, expected: unknown) =>
+  test(label, () => expect(actual).toEqual(expected));
 
 // --- buildRedirectUri ---
 
@@ -40,5 +37,3 @@ check(
 check('vite base is root tijdens dev (serve)', resolveBase('serve'), '/');
 check('vite base is /rooster-import/ bij build', resolveBase('build'), '/rooster-import/');
 
-console.log(`\n${failures ? `${failures} test(s) MISLUKT` : 'Alle tests geslaagd'}`);
-process.exit(failures ? 1 : 0);

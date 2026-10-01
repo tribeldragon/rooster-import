@@ -6,6 +6,7 @@ import {
   createStandardPublicClientApplication,
   type AccountInfo, type AuthenticationResult, type IPublicClientApplication,
 } from '@azure/msal-browser';
+import { apiFetch } from './http';
 import { eventIdFor, shiftDescription, type Shift } from './parse';
 import {
   shiftTimes,
@@ -67,7 +68,11 @@ async function requestToken(opts: { silent?: boolean } = {}): Promise<Token> {
     app.setActiveAccount(res.account);
     return toToken(res);
   } catch (e) {
-    if ((e as { errorCode?: string }).errorCode === 'user_cancelled') throw new Error('Inloggen geannuleerd.');
+    const code = (e as { errorCode?: string }).errorCode;
+    if (code === 'user_cancelled') throw new Error('Het inlogvenster is gesloten. Probeer het opnieuw.', { cause: e });
+    if (code === 'popup_window_error' || code === 'empty_window_error') {
+      throw new Error('Het inlogvenster kon niet worden geopend. Sta pop-ups toe voor deze site.', { cause: e });
+    }
     throw e;
   }
 }
@@ -81,24 +86,8 @@ function signOut(): void {
   void app.clearCache(account ? { account } : undefined);
 }
 
-async function api(token: string, path: string, init: RequestInit = {}): Promise<any> {
-  const res = await fetch(`${GRAPH}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...(init.headers ?? {}),
-    },
-  });
-  const text = await res.text();
-  const body = text ? JSON.parse(text) : {};
-  if (!res.ok) {
-    const err = new Error(body?.error?.message ?? `Microsoft Graph fout (${res.status})`) as Error & { status: number };
-    err.status = res.status;
-    throw err;
-  }
-  return body;
-}
+const api = (token: string, path: string, init: RequestInit = {}) =>
+  apiFetch(GRAPH, 'Microsoft Graph', token, path, init);
 
 async function listCalendars(token: string): Promise<CalendarEntry[]> {
   const data = await api(token, '/me/calendars?$top=250&$select=id,name,canEdit,isDefaultCalendar');
