@@ -2,10 +2,7 @@
  * Microsoft identity platform (MSAL, auth code + PKCE) + Microsoft Graph calendar API, no backend.
  * Works for personal accounts (outlook.com/hotmail) and work/school accounts.
  */
-import {
-  createStandardPublicClientApplication,
-  type AccountInfo, type AuthenticationResult, type IPublicClientApplication,
-} from '@azure/msal-browser';
+import type { AccountInfo, AuthenticationResult, IPublicClientApplication } from '@azure/msal-browser';
 import { apiFetch } from './http';
 import { eventIdFor, shiftDescription, type Shift } from './parse';
 import {
@@ -28,7 +25,8 @@ let instance: IPublicClientApplication | null = null;
 let initPromise: Promise<IPublicClientApplication> | null = null;
 
 function getApp(): Promise<IPublicClientApplication> {
-  initPromise ??= createStandardPublicClientApplication({
+  // MSAL is a separate chunk: it stays out of the main bundle but still starts loading at once (see below).
+  initPromise ??= import('@azure/msal-browser').then(({ createStandardPublicClientApplication }) => createStandardPublicClientApplication({
     auth: {
       clientId: CLIENT_ID,
       // "common" accepts both personal Microsoft accounts and work/school accounts
@@ -38,7 +36,7 @@ function getApp(): Promise<IPublicClientApplication> {
     },
     // keeps the session across reloads, like the Google "connected" flag
     cache: { cacheLocation: 'localStorage' },
-  }).then((app) => (instance = app));
+  })).then((app) => (instance = app));
   return initPromise;
 }
 

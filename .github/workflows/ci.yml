@@ -23,10 +23,19 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      # lint and test need no OCR assets, so skip install scripts entirely
+      - run: npm ci --ignore-scripts
 
       - run: npm run lint
 
       - run: npm test
+
+      # the build copies public/, so fetch the OCR assets (checksum-verified) with a cache
+      - uses: actions/cache@v4
+        with:
+          path: public/tessdata
+          key: tessdata-${{ hashFiles('scripts/prepare-assets.mjs') }}
+
+      - run: npm run prepare-assets
 
       - run: npm run build

@@ -3,7 +3,7 @@
  * once over the whole table (activities) and once over the narrow left
  * column (dates), which OCRs much better when it is isolated.
  */
-import { createWorker } from 'tesseract.js';
+import type { createWorker } from 'tesseract.js';
 import { computeSplitX, type OcrWord } from './parse';
 
 export interface Progress { stage: string; progress: number }
@@ -27,13 +27,9 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-export function fileToDataUrl(file: File | Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = () => reject(new Error('Bestand kon niet worden gelezen.'));
-    fr.readAsDataURL(file);
-  });
+/** A blob: URL avoids the base64 copy a data URL makes; the caller revokes it when done. */
+export function fileToObjectUrl(file: File | Blob): string {
+  return URL.createObjectURL(file);
 }
 
 interface Crop { left: number; top: number; width: number; height: number }
@@ -135,7 +131,7 @@ let report: (p: Progress) => void = () => {};
 function getWorker(): Promise<AnyWorker> {
   clearTimeout(idleTimer);
   workerPromise ??= (async () => {
-    const paths = await assetPaths();
+    const [paths, { createWorker }] = await Promise.all([assetPaths(), import('tesseract.js')]);
     return withTimeout(
       createWorker(['nld', 'eng'], 1, {
         ...paths,
@@ -163,8 +159,8 @@ function releaseWorker(discard: boolean): void {
   idleTimer = setTimeout(drop, IDLE_MS);
 }
 
-export async function runOcr(dataUrl: string, onProgress: (p: Progress) => void): Promise<OcrResult> {
-  const img = await loadImage(dataUrl);
+export async function runOcr(imageSrc: string, onProgress: (p: Progress) => void): Promise<OcrResult> {
+  const img = await loadImage(imageSrc);
   const width = img.naturalWidth;
   const height = img.naturalHeight;
   const scale = scaleFor(width);

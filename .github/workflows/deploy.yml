@@ -25,10 +25,14 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
-        env:
-          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-          VITE_MICROSOFT_CLIENT_ID: ${{ secrets.VITE_MICROSOFT_CLIENT_ID }}
+      - run: npm ci --ignore-scripts
+
+      - uses: actions/cache@v4
+        with:
+          path: public/tessdata
+          key: tessdata-${{ hashFiles('scripts/prepare-assets.mjs') }}
+
+      - run: npm run prepare-assets
 
       - run: npm run lint
 

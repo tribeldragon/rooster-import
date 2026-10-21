@@ -4,7 +4,7 @@ import {
   type ParseResult, type Shift,
 } from './lib/parse';
 import { parseScheduleText, looksLikeScheduleText } from './lib/parseText';
-import { fileToDataUrl, runOcr, type Progress } from './lib/ocr';
+import { fileToObjectUrl, runOcr, type Progress } from './lib/ocr';
 import type { EventSettings } from './lib/calendar';
 import { storeGet, storeSet } from './lib/storage';
 import { downloadIcs } from './lib/ics';
@@ -55,6 +55,8 @@ export default function App() {
 
   const cal = useCalendar(settings, setError);
 
+  // release the blob: URL of a replaced or cleared screenshot
+  useEffect(() => () => { if (imageUrl) URL.revokeObjectURL(imageUrl); }, [imageUrl]);
   useEffect(() => { storeSet(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -78,10 +80,10 @@ export default function App() {
     setShifts([]);
     cal.resetImportState();
     try {
-      const dataUrl = await fileToDataUrl(file);
-      setImageUrl(dataUrl);
+      const imageSrc = fileToObjectUrl(file);
+      setImageUrl(imageSrc);
       setProgress({ stage: 'Starten', progress: 0 });
-      const ocr = await runOcr(dataUrl, setProgress);
+      const ocr = await runOcr(imageSrc, setProgress);
       applyParsed(parseSchedule({
         fullWords: ocr.fullWords,
         leftWords: ocr.leftWords,
