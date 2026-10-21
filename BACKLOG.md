@@ -15,3 +15,11 @@ Shifts zonder OAuth of .ics in Apple Agenda zetten. Een eerste versie is gebouwd
 - Start/eind als lokale tijd (`YYYY-MM-DDTHH:mm:00`, zonder offset); nachtshifts eindigen de volgende dag.
 - Een `rooster-id:` regel in de notities laat de Opdracht bestaande afspraken overslaan (dubbele imports voorkomen).
 - Open punten: de Opdracht zelf moet handmatig gemaakt worden (stappen uitleggen in de app), en een iCloud-deellink voor de Opdracht zou de setup eenvoudiger maken.
+
+## Screenshot wordt geladen maar niet automatisch verwerkt
+
+Bug: na een upload (plakken, slepen of bladeren) verschijnt de afbeelding, maar de data (shifts) worden niet uitgelezen terwijl dat direct na het laden zou moeten gebeuren. Nog uit te zoeken: reproduceren (bestandstype/formaat, dev of GitHub Pages?), console-errors checken.
+
+Bevindingen tot nu toe: de code in `App.tsx` (`handleImage`) start OCR (`runOcr`) direct na het inlezen, dus de oorzaak zit waarschijnlijk in runtime: de OCR-motor die niet laadt (op Pages vallen `public/tesseract` en `public/tessdata` weg omdat ze in .gitignore staan en terugvallen op de CDN) of een fout die onopgemerkt blijft.
+
+Update: het probleem treedt alleen op in `main` (de gedeployde versie), niet in `dev`. Dat past bij de verdenking dat de lokale OCR-bestanden ontbreken in de build.
