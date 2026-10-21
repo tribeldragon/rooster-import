@@ -94,11 +94,12 @@ export interface OcrResult {
 
 /** Local assets (see scripts/prepare-assets.mjs); falls back to the tesseract.js CDN. */
 async function assetPaths(): Promise<{ workerPath?: string; corePath?: string; langPath?: string }> {
-  // A ranged GET works on every static server; HEAD is not always answered.
+  // HEAD, never a ranged GET: browsers cache the 1-byte 206 answer under the same URL, and the
+  // worker then imports that truncated file ("Invalid regular expression: missing /").
   const has = async (url: string) => {
     try {
-      const res = await fetch(url, { headers: { Range: 'bytes=0-0' } });
-      return res.ok || res.status === 206;
+      const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+      return res.ok;
     } catch { return false; }
   };
   // Served under the Vite base: "/" in dev, "/rooster-import/" on GitHub Pages.
