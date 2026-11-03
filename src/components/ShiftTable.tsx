@@ -1,4 +1,4 @@
-import { LOW_CONF_THRESHOLD, weekdayOf, type ParseResult, type Shift } from '../lib/parse';
+import { LOW_CONF_THRESHOLD, isCalendarReason, weekdayOf, type ParseResult, type Shift } from '../lib/parse';
 import type { ImportState } from '../hooks/useCalendar';
 import { TimeInput24 } from './TimeInput24';
 
@@ -18,7 +18,8 @@ interface Props {
 }
 
 function offSummary(result: ParseResult): string {
-  const offDays = result.days.filter((d) => d.off);
+  // leave days are in the list as all-day items, so they aren't "skipped"
+  const offDays = result.days.filter((d) => d.off && !isCalendarReason(d.offReason));
   if (!offDays.length) return '0 dagen overgeslagen';
   const counts = new Map<string, number>();
   offDays.forEach((d) => {
@@ -105,19 +106,23 @@ export function ShiftTable({
                       onChange={(e) => onPatch(s.id, { date: e.target.value })} />
                   </td>
                   <td className="muted" data-label="Dag">{s.date ? weekdayOf(s.date) : '—'}</td>
-                  <td data-label="Van">
-                    <TimeInput24 label="Van" value={s.start} onChange={(v) => onPatch(s.id, { start: v })} />
-                  </td>
-                  <td data-label="Tot">
-                    <TimeInput24 label="Tot" value={s.end} onChange={(v) => onPatch(s.id, { end: v })} />
-                    {s.endsNextDay && <span className="muted"> +1d</span>}
-                  </td>
+                  {s.allDay ? (
+                    <td data-label="Tijd" colSpan={2} className="muted">hele dag</td>
+                  ) : (<>
+                    <td data-label="Van">
+                      <TimeInput24 label="Van" value={s.start} onChange={(v) => onPatch(s.id, { start: v })} />
+                    </td>
+                    <td data-label="Tot">
+                      <TimeInput24 label="Tot" value={s.end} onChange={(v) => onPatch(s.id, { end: v })} />
+                      {s.endsNextDay && <span className="muted"> +1d</span>}
+                    </td>
+                  </>)}
                   <td data-label="Titel">
                     <input type="text" value={s.title} className="title-input"
                       onChange={(e) => onPatch(s.id, { title: e.target.value })} />
                   </td>
                   <td data-label="Activiteiten">
-                    <details>
+                    {s.allDay ? <span className="muted">—</span> : <details>
                       <summary>{s.activities.length} activiteiten</summary>
                       <ul className="acts">
                         {s.activities.map((a, i) => (
@@ -128,7 +133,7 @@ export function ShiftTable({
                           </li>
                         ))}
                       </ul>
-                    </details>
+                    </details>}
                     {s.warnings.map((w, i) => <div className="note warn" key={i}>{w}</div>)}
                   </td>
                   <td data-label="Status">

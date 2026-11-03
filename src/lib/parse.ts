@@ -50,6 +50,8 @@ export interface Shift {
   title: string;
   /** Which OFFICE_ACTIVITIES occur during this shift, in order of first occurrence. */
   officeActivities: string[];
+  /** All-day entry (a leave day) instead of a timed shift; start/end are then ignored. */
+  allDay?: boolean;
 }
 
 export interface ParseResult {
@@ -118,6 +120,24 @@ const ABSENCE_KEYWORDS: { word: string; label: string }[] = [
   { word: 'vrij', label: 'Vrij' },
 ];
 const ABSENCE_WORDS = ABSENCE_KEYWORDS.map((k) => k.word);
+export const NOT_PUBLISHED = 'Niet gepubliceerd';
+
+/** Absence reasons that go into the calendar as an all-day event instead of being skipped. */
+export const CALENDAR_REASONS = ['Verlof'];
+
+export const isCalendarReason = (reason: string | null) => !!reason && CALENDAR_REASONS.includes(reason);
+
+/** The all-day calendar entry for a leave day, or null when the day is skipped or undated. */
+export function leaveShift(day: DayRow): Shift | null {
+  if (!day.off || !day.date || !isCalendarReason(day.offReason)) return null;
+  return {
+    id: `${day.date}-${day.offReason!.toLowerCase()}`,
+    date: day.date, dayName: day.dayName,
+    start: '00:00', end: '00:00', endsNextDay: false, allDay: true,
+    activities: [], warnings: [], include: true,
+    title: day.offReason!, officeActivities: [],
+  };
+}
 
 /** Fuzzy-match every word in a line against ABSENCE_KEYWORDS; returns the best label, or null. */
 export function detectAbsence(line: string): string | null {
@@ -133,6 +153,9 @@ export function detectAbsence(line: string): string | null {
     const idx = fuzzyIndex(tok, ABSENCE_WORDS);
     if (idx !== -1 && idx < bestPriority) { bestPriority = idx; bestLabel = ABSENCE_KEYWORDS[idx].label; }
   }
+  // A day whose roster isn't out yet: nothing to import. Needs "niet" so a plain
+  // "Gepubliceerd" never skips a day; a real reason on the line still wins.
+  if (!bestLabel && /\bniet\s*gep[uv]bli/i.test(line)) return NOT_PUBLISHED;
   return bestLabel;
 }
 
@@ -636,6 +659,10 @@ export function parseSchedule(input: ParseInput): ParseResult {
       warnings.push(`Geen activiteiten herkend voor ${d.dayName ?? d.raw} (${d.date}) — voeg deze shift handmatig toe.`);
     }
   });
+  days.forEach((d) => {
+    const leave = leaveShift(d);
+    if (leave && !coveredDates.has(leave.date!)) shifts.push(leave);
+  });
   shifts.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || a.start.localeCompare(b.start));
   if (!shifts.length) warnings.push('Geen activiteiten herkend. Probeer een scherpere of grotere screenshot.');
 
@@ -650,6 +677,7 @@ export function shiftTitle(base: string, officeActivities: string[]): string {
 }
 
 export function shiftDescription(shift: Shift): string {
+  if (shift.allDay) return 'Geïmporteerd met Rooster Import.';
   const lines = shift.activities.map((a) => `${a.start} - ${a.end}  ${a.label}${a.repaired ? ' (gecorrigeerd)' : ''}`);
   const totals = new Map<string, number>();
   for (const a of shift.activities) {

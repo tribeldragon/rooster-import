@@ -6,7 +6,7 @@ import type { AccountInfo, AuthenticationResult, IPublicClientApplication } from
 import { apiFetch } from './http';
 import { eventIdFor, shiftDescription, type Shift } from './parse';
 import {
-  shiftTimes,
+  allDayDates, shiftTimes,
   type CalendarEntry, type CalendarProvider, type EventSettings, type Token, type UpsertOutcome,
 } from './calendar';
 import { buildRedirectUri } from './redirectUri';
@@ -95,17 +95,23 @@ async function listCalendars(token: string): Promise<CalendarEntry[]> {
 }
 
 function buildEvent(shift: Shift, settings: EventSettings) {
-  const { start, end } = shiftTimes(shift);
+  // Graph wants all-day events as midnight-to-midnight; isAllDay is always sent so an
+  // update can turn an earlier shift into a leave day (and back).
+  const { start, end } = shift.allDay ? allDayDates(shift) : shiftTimes(shift);
+  const at = (d: string) => (shift.allDay ? `${d}T00:00:00` : d);
   return {
     subject: shift.title || 'Werk',
     body: { contentType: 'text', content: shiftDescription(shift) },
-    start: { dateTime: start, timeZone: settings.timeZone },
-    end: { dateTime: end, timeZone: settings.timeZone },
-    showAs: 'busy',
+    isAllDay: !!shift.allDay,
+    start: { dateTime: at(start), timeZone: settings.timeZone },
+    end: { dateTime: at(end), timeZone: settings.timeZone },
+    showAs: shift.allDay ? 'oof' : 'busy',
     // null = leave Outlook's own default reminder alone
-    ...(settings.reminderMinutes === null
-      ? {}
-      : { isReminderOn: true, reminderMinutesBeforeStart: settings.reminderMinutes }),
+    ...(shift.allDay
+      ? { isReminderOn: false }
+      : settings.reminderMinutes === null
+        ? {}
+        : { isReminderOn: true, reminderMinutesBeforeStart: settings.reminderMinutes }),
   };
 }
 

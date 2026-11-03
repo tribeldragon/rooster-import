@@ -154,6 +154,9 @@ check('afwezigheid: medisch verlof (OCR medlsch verlot)', detectAbsence('Medlsch
 check('afwezigheid: medisch verlof (omgekeerde woordvolgorde)', detectAbsence('Verlof Medisch'), 'Medisch verlof');
 check('afwezigheid: geen match op een tijdrange', detectAbsence('09:30 - 18:00'), null);
 check('afwezigheid: geen match op "Voice"', detectAbsence('Voice'), null);
+check('afwezigheid: niet gepubliceerd', detectAbsence('Niet gepubliceerd'), 'Niet gepubliceerd');
+check('afwezigheid: niet gepubliceerd (OCR gepvbliceerd)', detectAbsence('Niet gepvbliceerd'), 'Niet gepubliceerd');
+check('afwezigheid: "Gepubliceerd" zonder "niet" is geen afwezigheid', detectAbsence('Gepubliceerd'), null);
 
 // Real tester screenshot (IMG-20260925-WA0003): noisy OCR, colons dropped, date-carrying
 // time cells, an echoed activity on an off day. Shift times must still come out exact.
@@ -161,10 +164,11 @@ const wa = JSON.parse(fs.readFileSync(path.join(here, 'fixture-wa0003.json'), 'u
 const waResult = parseSchedule({ fullWords: wa.fullWords, leftWords: wa.leftWords, timeWords: wa.timeWords, imageWidth: wa.imageWidth, fallbackYear: 2026 });
 check(
   'wa0003: shifts',
-  waResult.shifts.map((s) => `${s.date} ${s.start}-${s.end}${s.endsNextDay ? '+1' : ''}`),
-  ['2026-10-21 16:30-01:00+1', '2026-10-24 13:30-22:00', '2026-10-25 16:30-01:00+1'],
+  waResult.shifts.map((s) => (s.allDay ? `${s.date} ${s.title}` : `${s.date} ${s.start}-${s.end}${s.endsNextDay ? '+1' : ''}`)),
+  // ma/di are Verlof: all-day items; do/vr are Vrij: skipped
+  ['2026-10-19 Verlof', '2026-10-20 Verlof', '2026-10-21 16:30-01:00+1', '2026-10-24 13:30-22:00', '2026-10-25 16:30-01:00+1'],
 );
-check('wa0003: woensdag heeft 7 activiteiten', waResult.shifts[0]?.activities.length, 7);
+check('wa0003: woensdag heeft 7 activiteiten', waResult.shifts.find((s) => s.date === '2026-10-21')?.activities.length, 7);
 
 // Week over de jaarwisseling, datums zonder jaar (di 29 dec - ma 4 jan)
 const nye = [29, 30, 31, 1, 2, 3, 4].map((day, index) => ({

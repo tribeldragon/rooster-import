@@ -3,13 +3,15 @@
  * instead of read from a screenshot. The text is exact, so no OCR repair is needed.
  */
 import {
-  DAY_NAMES, MONTHS, OFFICE_ACTIVITIES, detectAbsence, minutesOf, officeIn, pad2, shiftTitle, weekdayOf,
+  DAY_NAMES, MONTHS, NOT_PUBLISHED, OFFICE_ACTIVITIES, detectAbsence, leaveShift, minutesOf, officeIn, pad2, shiftTitle, weekdayOf,
   type Activity, type DayRow, type ParseResult, type Shift,
 } from './parse';
 
 const DAY_HEADER_RE = new RegExp(`\\b(${DAY_NAMES.join('|')})\\s+(\\d{1,2})\\s+(${MONTHS.join('|')})\\s+(\\d{4})\\b`, 'i');
 const DECLARED_SHIFT_RE = /^(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})\b/;
 const ACTIVITY_RE = /^(?:\d+\.\s*)?(.+?)\s+(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/;
+
+const GENERIC_STATUS = ['Afwezig', 'Vrij', NOT_PUBLISHED];
 
 const time = (h: string, m: string) => `${pad2(+h)}:${m}`;
 
@@ -62,13 +64,17 @@ export function parseScheduleText(text: string, officeList: string[] = OFFICE_AC
     // Skip the approval history table that follows a leave entry.
     if (/^\d{2}\/\d{2}\/\d{4}/.test(line)) return;
     const reason = detectAbsence(line.split(/Last Modified/i)[0]);
-    // "Afwezig"/"Vrij" is only the generic status; a later line names the real reason (Verlof, Ziek, ...).
-    if (reason && (!day.off || day.offReason === 'Afwezig' || day.offReason === 'Vrij')) { day.off = true; day.offReason = reason; }
+    // "Afwezig"/"Vrij"/"Niet gepubliceerd" is only the generic status; a later line names the real reason (Verlof, Ziek, ...).
+    if (reason && (!day.off || GENERIC_STATUS.includes(day.offReason!))) { day.off = true; day.offReason = reason; }
   });
 
   const shifts: Shift[] = [];
   days.forEach((day, i) => {
-    if (day.off) return;
+    if (day.off) {
+      const leave = leaveShift(day);
+      if (leave) shifts.push(leave);
+      return;
+    }
     const acts = dayActs[i];
     const start = acts[0]?.start ?? day.declaredShift?.start;
     const end = acts[acts.length - 1]?.end ?? day.declaredShift?.end;

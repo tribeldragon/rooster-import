@@ -36,3 +36,8 @@ export function shiftTimes(shift: Shift): { start: string; end: string } {
   const endDate = shift.endsNextDay ? addDays(date, 1) : date;
   return { start: `${date}T${shift.start}:00`, end: `${endDate}T${shift.end}:00` };
 }
+
+/** First day and the exclusive end day (`YYYY-MM-DD`) of an all-day entry, as calendars expect. */
+export function allDayDates(shift: Shift): { start: string; end: string } {
+  return { start: shift.date!, end: addDays(shift.date!, 1) };
+}

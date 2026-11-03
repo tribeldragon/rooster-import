@@ -67,7 +67,8 @@ export default function App() {
 
   const applyParsed = useCallback((parsed: ParseResult) => {
     setResult(parsed);
-    setShifts(parsed.shifts.map((s) => ({ ...s, title: shiftTitle(settings.defaultTitle, s.officeActivities) })));
+    // leave days keep their own title ("Verlof"); only work shifts take the base title
+    setShifts(parsed.shifts.map((s) => (s.allDay ? s : { ...s, title: shiftTitle(settings.defaultTitle, s.officeActivities) })));
   }, [settings.defaultTitle]);
 
   const ocrRunning = useRef(false);
@@ -165,6 +166,7 @@ export default function App() {
     const list = splitList(officeList);
     setSettings((s) => ({ ...s, defaultTitle, officeActivities: officeList }));
     setShifts((prev) => prev.map((s) => {
+      if (s.allDay) return s;
       const officeActivities = officeIn(s.activities, list);
       return { ...s, officeActivities, title: shiftTitle(defaultTitle, officeActivities) };
     }));

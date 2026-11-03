@@ -3,7 +3,7 @@
  * stable UID (the same one the API imports use), so re-importing the file updates in most apps.
  */
 import { eventIdFor, shiftDescription, type Shift } from './parse';
-import { shiftTimes, type EventSettings } from './calendar';
+import { allDayDates, shiftTimes, type EventSettings } from './calendar';
 
 /** UTC offset (ms) of `timeZone` at the given instant. */
 function zoneOffset(utcMs: number, timeZone: string): number {
@@ -46,18 +46,25 @@ export function buildIcs(shifts: Shift[], settings: EventSettings, now = new Dat
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Rooster Import//NL', 'CALSCALE:GREGORIAN'];
   for (const shift of shifts) {
-    const { start, end } = shiftTimes(shift);
+    let when: string[];
+    if (shift.allDay) {
+      const { start, end } = allDayDates(shift);
+      when = [`DTSTART;VALUE=DATE:${start.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${end.replace(/-/g, '')}`];
+    } else {
+      const { start, end } = shiftTimes(shift);
+      when = [`DTSTART:${toUtcStamp(start, settings.timeZone)}`, `DTEND:${toUtcStamp(end, settings.timeZone)}`];
+    }
     lines.push(
       'BEGIN:VEVENT',
       `UID:${eventIdFor(shift)}@rooster-import`,
       `DTSTAMP:${stamp}`,
-      `DTSTART:${toUtcStamp(start, settings.timeZone)}`,
-      `DTEND:${toUtcStamp(end, settings.timeZone)}`,
+      ...when,
       `SUMMARY:${escapeText(shift.title || 'Werk')}`,
       `DESCRIPTION:${escapeText(shiftDescription(shift))}`,
       'TRANSP:OPAQUE',
     );
-    if (settings.reminderMinutes !== null) {
+    // the shift reminder ("x min before start") makes no sense at midnight of a leave day
+    if (settings.reminderMinutes !== null && !shift.allDay) {
       lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Shift',
         `TRIGGER:-PT${settings.reminderMinutes}M`, 'END:VALARM');
     }

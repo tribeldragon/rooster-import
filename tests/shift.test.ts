@@ -47,3 +47,29 @@ test('geplakte tekst: shift, kantoortitel en vrije dag (zonder samples/)', () =>
   expect(r.days.map((d) => d.off)).toEqual([false, true]);
   expect(parseScheduleText(ROSTER, []).shifts[0].title).toBe('Werk');
 });
+
+// Leave week with an approval history per day, and a weekend whose roster isn't out yet.
+const LEAVE_WEEK = `Campagne\tShift\tActiviteiten\tLocatie\tCampagne van de activiteit
+\tvrijdag 11 december 2026
+afwezig\t
+ 1. Verlof_3098328 \t00:00 - 12-12-2026 00:00Last Modified\tStatus\tComments
+10/27/2026 1:54 PM\tPending\tCreated
+10/29/2026 8:49 AM\tApproved\tUpdated
+\tzaterdag 12 december 2026
+Niet gepubliceerd\t\t\t
+\tzondag 13 december 2026
+Niet gepubliceerd\t\t\t
+`;
+
+test('geplakte tekst: verlof wordt een hele-dag-item, niet-gepubliceerde dagen worden overgeslagen', () => {
+  const r = parseScheduleText(LEAVE_WEEK);
+  expect(r.days.map((d) => [d.date, d.offReason])).toEqual([
+    ['2026-12-11', 'Verlof'],
+    ['2026-12-12', 'Niet gepubliceerd'],
+    ['2026-12-13', 'Niet gepubliceerd'],
+  ]);
+  expect(r.shifts).toHaveLength(1);
+  expect(r.shifts[0]).toMatchObject({ date: '2026-12-11', allDay: true, include: true, title: 'Verlof', activities: [] });
+  expect(eventIdFor(r.shifts[0])).toBe('rooster20261211');
+  expect(r.warnings).toEqual([]);
+});

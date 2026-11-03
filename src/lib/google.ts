@@ -4,7 +4,7 @@
 import { apiFetch } from './http';
 import { eventIdFor, shiftDescription, type Shift } from './parse';
 import {
-  shiftTimes,
+  allDayDates, shiftTimes,
   type CalendarEntry, type CalendarProvider, type EventSettings, type Token, type UpsertOutcome,
 } from './calendar';
 
@@ -70,19 +70,26 @@ async function listCalendars(token: string): Promise<CalendarEntry[]> {
   }));
 }
 
-function buildEvent(shift: Shift, settings: EventSettings) {
+function eventTimes(shift: Shift, timeZone: string) {
+  if (shift.allDay) {
+    const { start, end } = allDayDates(shift);
+    return { start: { date: start }, end: { date: end } };
+  }
   const { start, end } = shiftTimes(shift);
+  return { start: { dateTime: start, timeZone }, end: { dateTime: end, timeZone } };
+}
+
+function buildEvent(shift: Shift, settings: EventSettings) {
   return {
     id: eventIdFor(shift),
     summary: shift.title || 'Werk',
     description: shiftDescription(shift),
-    start: { dateTime: start, timeZone: settings.timeZone },
-    end: { dateTime: end, timeZone: settings.timeZone },
+    ...eventTimes(shift, settings.timeZone),
     status: 'confirmed',
     transparency: 'opaque',
     source: { title: 'Rooster Import', url: window.location.origin + import.meta.env.BASE_URL },
     extendedProperties: { private: { roosterImport: '1', roosterDate: shift.date! } },
-    reminders: settings.reminderMinutes === null
+    reminders: settings.reminderMinutes === null || shift.allDay
       ? { useDefault: true }
       : { useDefault: false, overrides: [{ method: 'popup', minutes: settings.reminderMinutes }] },
   };

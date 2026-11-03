@@ -25,3 +25,12 @@ test('ics: nachtshift, escaping, alarm, CRLF en vouwen', () => {
   expect(ics.endsWith('END:VCALENDAR\r\n')).toBe(true);
   for (const line of ics.split('\r\n')) expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
 });
+
+test('ics: verlofdag als hele-dag-event zonder shift-alarm', () => {
+  const leave: Shift = { ...shift, date: '2026-12-31', start: '00:00', end: '00:00', endsNextDay: false, allDay: true, activities: [], title: 'Verlof' };
+  const ics = buildIcs([leave], settings, new Date('2026-10-01T10:00:00Z'));
+  expect(ics).toContain('DTSTART;VALUE=DATE:20261231');
+  expect(ics).toContain('DTEND;VALUE=DATE:20270101');
+  expect(ics).toContain('SUMMARY:Verlof');
+  expect(ics).not.toContain('VALARM');
+});
